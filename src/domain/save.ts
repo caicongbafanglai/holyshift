@@ -3,6 +3,7 @@ import {
   ENEMIES,
   FOODS,
   PLAYER_COMBAT,
+  TASK_REWARD_CODES,
   type ChapterProgress,
   type EnemyId,
   type FoodId
@@ -258,6 +259,23 @@ export function migrateSave(raw: unknown, writerId: string): GameSave | null {
   const flags = isRecord(raw.flags) ? raw.flags : {};
   const player = isRecord(raw.player) ? raw.player : {};
   const economy = isRecord(raw.economy) ? raw.economy : {};
+  const consumedEvents = Array.isArray(raw.consumedEvents)
+    ? raw.consumedEvents
+        .map(normalizeEventId)
+        .filter((value): value is string => value !== null)
+        .slice(-64)
+    : [];
+  let economyCodes = normalizeCodes(economy.codes);
+  const earnedProgress = CHAPTER_ORDER.slice(
+    1,
+    CHAPTER_ORDER.indexOf(raw.progress as ChapterProgress) + 1
+  );
+  for (const completedProgress of earnedProgress) {
+    const rewardEvent = `reward:progress:${completedProgress}`;
+    if (consumedEvents.includes(rewardEvent)) continue;
+    economyCodes = normalizeCodes(economyCodes + TASK_REWARD_CODES);
+    consumedEvents.push(rewardEvent);
+  }
   const candidateFood = normalizeFoodId(player.activeStaminaFood);
   const candidateStaminaMaximum =
     PLAYER_COMBAT.maxStamina +
@@ -301,7 +319,7 @@ export function migrateSave(raw: unknown, writerId: string): GameSave | null {
       activeStaminaFood
     },
     economy: {
-      codes: normalizeCodes(economy.codes),
+      codes: economyCodes,
       inventory: normalizeInventory(economy.inventory)
     },
     defeated: Object.fromEntries(
@@ -314,12 +332,7 @@ export function migrateSave(raw: unknown, writerId: string): GameSave | null {
       elevatorSeen: flags.elevatorSeen === true
     },
     checkpoint: null,
-    consumedEvents: Array.isArray(raw.consumedEvents)
-      ? raw.consumedEvents
-          .map(normalizeEventId)
-          .filter((value): value is string => value !== null)
-          .slice(-64)
-      : [],
+    consumedEvents: consumedEvents.slice(-64),
     playSeconds,
     settings: normalizeSettings(raw.settings)
   };

@@ -178,8 +178,19 @@ describe('transactional v0.3 local save', () => {
 
     expect(loaded.progress).toBe('consultLin');
     expect(loaded.player.activeStaminaFood).toBeNull();
-    expect(loaded.economy.codes).toBe(0);
+    expect(loaded.economy.codes).toBe(364);
     expect(Object.values(loaded.economy.inventory)).toEqual([0, 0, 0]);
+    expect(loaded.consumedEvents).toEqual([
+      'reward:progress:inspectFountain',
+      'reward:progress:clearWisps',
+      'reward:progress:traceSacredGlyph',
+      'reward:progress:consultLin'
+    ]);
+
+    loaded.economy.codes = 300;
+    const saved = manager.save(loaded);
+    expect(manager.load().save.economy.codes).toBe(300);
+    expect(manager.load().save.consumedEvents).toEqual(saved.consumedEvents);
   });
 
   it('preserves a valid food boost but expires forged zero-stamina boosts', () => {
