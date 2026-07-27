@@ -32,10 +32,13 @@ jobs:
           cache: npm
 
       - name: Install exact dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: Typecheck, lint, test, and build
         run: npm run check
+
+      - name: Audit production and development dependencies
+        run: npm audit --audit-level=moderate
 
       - name: Upload verified static build
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -69,7 +69,7 @@
 - 本地 E2E 流程桥同时受回环主机名和 `?e2e=1` 限制，生产域名不可访问。
 - 动态文本进入 HTML 前转义；CSP 禁止外部脚本、对象、表单、框架嵌入和 worker。
 - GitHub Actions 只授予 `contents: read`，第三方 Action 固定到完整提交 SHA。
-- 依赖版本由 `package-lock.json` 锁定，直接依赖许可见 `THIRD_PARTY_NOTICES.md`。
+- 依赖版本与 SRI 完整性由 `package-lock.json` 锁定，tarball 只指向官方 `https://registry.npmjs.org/`；直接依赖许可见 `THIRD_PARTY_NOTICES.md`。
 
 ## 6. 公网切换
 
