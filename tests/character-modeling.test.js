@@ -142,4 +142,45 @@ describe('authored character modeling quality gates', () => {
       expect(after.triangles).toBeCloseTo(before.triangles, 4);
     }
   });
+
+  it('keeps the senior pastor fully white-haired and gives every crowd role a distinct silhouette', () => {
+    const senior = createPastorSenior();
+    const seniorHair = [];
+    senior.traverse((object) => {
+      if (
+        object.isMesh &&
+        /发壳|刘海|后发层|编发交错段/.test(object.name) &&
+        !object.name.includes('金扣')
+      ) {
+        seniorHair.push(object);
+      }
+    });
+    expect(seniorHair.length).toBeGreaterThanOrEqual(19);
+    for (const lock of seniorHair) {
+      expect(lock.material.color.r).toBeGreaterThan(0.68);
+      expect(lock.material.color.g).toBeGreaterThan(0.72);
+      expect(lock.material.color.b).toBeGreaterThan(0.76);
+    }
+
+    const roles = ['clerk', 'acolyte', 'vendor', 'usher'];
+    const silhouettes = roles.map((kind) => {
+      const citizen = createPlazaCitizen({ name: kind, kind });
+      expect(citizen.userData.characterQuality.hairStyle.length).toBeGreaterThan(6);
+      return citizen.userData.characterQuality.silhouette;
+    });
+    expect(new Set(silhouettes).size).toBe(roles.length);
+  });
+
+  it('keeps Pingu mouth geometry visibly in front of the face', () => {
+    const pingu = createPingu();
+    pingu.updateMatrixWorld(true);
+    const mouth = pingu.getObjectByName('Pingu正面嘴缝');
+    const beak = pingu.getObjectByName('Pingu正面立体上下喙');
+    expect(mouth).toBeTruthy();
+    expect(beak).toBeTruthy();
+    const mouthBounds = new THREE.Box3().setFromObject(mouth);
+    const beakBounds = new THREE.Box3().setFromObject(beak);
+    expect(mouthBounds.max.z).toBeGreaterThan(beakBounds.max.z);
+    expect(mouthBounds.getSize(new THREE.Vector3()).x).toBeGreaterThan(0.18);
+  });
 });

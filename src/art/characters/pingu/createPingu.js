@@ -16,26 +16,33 @@ import {
 } from '../common/modeling/organicGeometry.js';
 
 function createBeakGeometry() {
-  const width = 0.24;
-  const height = 0.14;
-  const depth = 0.24;
+  const width = 0.27;
+  const height = 0.15;
+  const depth = 0.255;
   const positions = [
-    -width / 2, height * 0.35, 0,
-    width / 2, height * 0.35, 0,
-    -width * 0.42, -height * 0.45, 0,
-    width * 0.42, -height * 0.45, 0,
-    0, height * 0.08, depth,
-    0, height * 0.53, depth * 0.28,
-    0, -height * 0.55, depth * 0.25
+    -width / 2, height * 0.32, 0,
+    width / 2, height * 0.32, 0,
+    -width * 0.43, -height * 0.48, 0,
+    width * 0.43, -height * 0.48, 0,
+    -width * 0.39, height * 0.23, depth,
+    width * 0.39, height * 0.23, depth,
+    -width * 0.34, -height * 0.39, depth * 0.97,
+    width * 0.34, -height * 0.39, depth * 0.97,
+    0, height * 0.58, depth * 0.48
   ];
   const indices = [
-    0, 1, 5,
-    0, 5, 4,
-    1, 4, 5,
+    0, 1, 8,
+    0, 8, 4,
+    1, 5, 8,
+    4, 8, 5,
     0, 4, 2,
-    1, 3, 4,
     2, 4, 6,
-    4, 3, 6,
+    1, 3, 5,
+    3, 7, 5,
+    2, 6, 3,
+    3, 6, 7,
+    4, 6, 5,
+    5, 6, 7,
     0, 2, 1,
     1, 2, 3
   ];
@@ -162,14 +169,31 @@ function addPinguFace(visual, materials) {
     );
     visual.add(eye, iris, catchlight);
   }
-  visual.add(
-    createMesh(
-      createBeakGeometry(),
-      materials.orange,
-      'Pingu上下喙',
-      [0, 1.19, 0.34]
-    )
+  const beak = createMesh(
+    createBeakGeometry(),
+    materials.orange,
+    'Pingu正面立体上下喙',
+    [0, 1.19, 0.34]
   );
+  const mouthSeam = createMesh(
+    createExtrudedPanelGeometry(
+      [
+        [-0.1, 0.006],
+        [-0.055, -0.006],
+        [0, -0.01],
+        [0.055, -0.006],
+        [0.1, 0.006],
+        [0.055, 0.016],
+        [0, 0.013],
+        [-0.055, 0.016]
+      ],
+      { depth: 0.012, bevel: 0.003, name: 'Pingu正面嘴缝拓扑' }
+    ),
+    materials.mouth,
+    'Pingu正面嘴缝',
+    [0, 1.18, 0.596]
+  );
+  visual.add(beak, mouthSeam);
 }
 
 function addPinguLimbs(root, visual, materials) {
@@ -346,6 +370,7 @@ export function createPingu() {
     black: createCharacterMaterial(0x152332, { roughness: 0.68 }),
     white: createCharacterMaterial(0xf3efe2, { roughness: 0.75 }),
     orange: createCharacterMaterial(0xe7973d, { roughness: 0.58 }),
+    mouth: createCharacterMaterial(0x6f2e28, { roughness: 0.78 }),
     eye: createCharacterMaterial(0x071118, { roughness: 0.18 }),
     catchlight: createCharacterMaterial(0xffffff, {
       roughness: 0.1,
@@ -370,7 +395,7 @@ export function createPingu() {
   };
   root.userData.characterQuality = Object.freeze({
     silhouette: '梨形企鹅羽体、软帽、补给斜背带、三趾蹼足',
-    faceLayers: 5,
+    faceLayers: 6,
     featherSections: 9,
     authoredGeometry: true,
     originality: '原创红肠物流企鹅，不复刻既有影视角色造型'

@@ -13,7 +13,8 @@ import { SACRED_MATERIALS } from '../art/materials/sacredMaterials.js';
 import { createMesh } from '../art/modeling/primitives.js';
 import {
   batchMeshesByMaterial,
-  batchRigidCharacter
+  batchRigidCharacter,
+  batchMeshesWithVertexColors
 } from '../art/modeling/batchMeshes.js';
 import { createNoticeBoard } from '../art/props/createNoticeBoard.js';
 import { createSacredBench, createSacredLamp, createApprovalKiosk } from '../art/props/createPlazaFurniture.js';
@@ -38,6 +39,17 @@ const ISLAND_POINTS = [
   [68, 66],
   [-68, 66]
 ];
+const FOUNTAIN_CENTER = { x: 0, z: -8 };
+const FOUNTAIN_WATER_RADIUS = 8.85;
+const FOUNTAIN_CORE_RADIUS = 2.95;
+const FLIGHT_BOUNDS = Object.freeze({
+  minX: -66.5,
+  maxX: 66.5,
+  minY: 0,
+  maxY: 22,
+  minZ: -94.5,
+  maxZ: 64.5
+});
 
 function pointInPolygon(x, z, points) {
   let inside = false;
@@ -173,16 +185,110 @@ function addFurniture(world) {
   world.scene.add(furnitureRoot);
 }
 
+function createFountainBasinColliders() {
+  const colliders = [];
+  const segmentCount = 32;
+  const radius = 9.78;
+  const entranceAngle = Math.PI / 2;
+  const entranceHalfAngle = 0.25;
+  for (let index = 0; index < segmentCount; index += 1) {
+    const startAngle = (index / segmentCount) * Math.PI * 2;
+    const endAngle = ((index + 1) / segmentCount) * Math.PI * 2;
+    const middleAngle = (startAngle + endAngle) / 2;
+    const entranceDistance = Math.abs(
+      Math.atan2(
+        Math.sin(middleAngle - entranceAngle),
+        Math.cos(middleAngle - entranceAngle)
+      )
+    );
+    if (entranceDistance < entranceHalfAngle) continue;
+    colliders.push(
+      segmentCollider(
+        `圣水池环形盆壁碰撞-${index + 1}`,
+        {
+          x: FOUNTAIN_CENTER.x + Math.cos(startAngle) * radius,
+          z: FOUNTAIN_CENTER.z + Math.sin(startAngle) * radius
+        },
+        {
+          x: FOUNTAIN_CENTER.x + Math.cos(endAngle) * radius,
+          z: FOUNTAIN_CENTER.z + Math.sin(endAngle) * radius
+        },
+        0.55,
+        0,
+        1.36
+      )
+    );
+  }
+  colliders.push(
+    cylinderCollider(
+      '圣水池中心流程基座碰撞',
+      FOUNTAIN_CENTER.x,
+      FOUNTAIN_CENTER.z,
+      2.72,
+      0.55,
+      8.1
+    )
+  );
+  return colliders;
+}
+
 function addEnvironmentLights(world) {
-  const hemisphere = new THREE.HemisphereLight(0xe6fbff, 0x5a6d70, 2.25);
+  const hemisphere = new THREE.HemisphereLight(0xf0fdff, 0x6f8180, 2.38);
   hemisphere.name = '明亮海湾环境光';
-  const sun = new THREE.DirectionalLight(0xfff2d2, 3.2);
+  const sun = new THREE.DirectionalLight(0xfff6dc, 3.35);
   sun.name = '师老牧镇午前日光';
   sun.position.set(-70, 115, 65);
-  const sacredBounce = new THREE.DirectionalLight(0x75ddec, 0.85);
+  const sacredBounce = new THREE.DirectionalLight(0x8de9f2, 0.92);
   sacredBounce.name = '圣水池青色反射光';
   sacredBounce.position.set(45, 22, -40);
   world.scene.add(hemisphere, sun, sacredBounce);
+}
+
+function addAmbientCrowdGroup(world, name, placements) {
+  const root = new THREE.Group();
+  root.name = name;
+  placements.forEach((placement, index) => {
+    const citizen = createPlazaCitizen({
+      name: placement.name,
+      kind: placement.kind,
+      colors: placement.colors
+    });
+    citizen.position.set(placement.x, 0, placement.z);
+    citizen.rotation.y = placement.rotation;
+    citizen.userData.animate?.({
+      time: index * 0.71,
+      moving: false,
+      sprinting: false
+    });
+    const rig = citizen.userData.rig;
+    if (rig) {
+      rig.headPivot.rotation.y = (index - 1) * 0.13;
+      rig.leftArm.upper.rotation.z = -0.08 - index * 0.025;
+      rig.rightArm.upper.rotation.z = 0.08 + index * 0.02;
+    }
+    root.add(citizen);
+    world.baseColliders.push(
+      cylinderCollider(
+        `${placement.name}群众碰撞`,
+        placement.x,
+        placement.z,
+        0.42,
+        0,
+        1.95
+      )
+    );
+  });
+
+  const visualBatch = batchMeshesWithVertexColors(root, {
+    name: `${name}-多色顶点角色批次`
+  });
+  batchMeshesByMaterial(root, {
+    name: `${name}-接触阴影批次`,
+    preserve: new Set([visualBatch]),
+    includeTransparent: true
+  });
+  world.scene.add(root);
+  return root;
 }
 
 function addClouds(world) {
@@ -224,8 +330,8 @@ export class MushiTownWorld {
   constructor() {
     this.scene = new THREE.Scene();
     this.scene.name = '师老牧镇第一章世界';
-    this.scene.background = new THREE.Color(0xb9dce5);
-    this.scene.fog = new THREE.Fog(0xb9dce5, 230, 1050);
+    this.scene.background = new THREE.Color(0xc9e8ef);
+    this.scene.fog = new THREE.Fog(0xc9e8ef, 250, 1080);
     this.elapsed = 0;
     this.currentProgress = 'intro';
     this.baseColliders = [];
@@ -245,6 +351,14 @@ export class MushiTownWorld {
     this.plaza = createSacredPlaza();
     this.scene.add(this.plaza);
     this.fountain = createSacredFountain();
+    const fountainAccessSteps = this.fountain.getObjectByName(
+      '圣水池南侧可进入祝福台阶'
+    );
+    if (fountainAccessSteps) {
+      batchMeshesByMaterial(fountainAccessSteps, {
+        name: '圣水池入口台阶材质批次'
+      });
+    }
     this.scene.add(this.fountain);
     this.church = createPrivateChurch();
     const churchPreserve = new Set([
@@ -263,11 +377,11 @@ export class MushiTownWorld {
     this.scene.add(this.distantCity);
 
     this.baseColliders.push(
-      segmentCollider('西侧海湾安全边界', { x: -68, z: -96 }, { x: -68, z: 66 }, 0.6, -4, 8),
-      segmentCollider('东侧海湾安全边界', { x: 68, z: 66 }, { x: 68, z: -96 }, 0.6, -4, 8),
-      segmentCollider('南侧海湾安全边界', { x: -68, z: 66 }, { x: 68, z: 66 }, 0.6, -4, 8),
-      segmentCollider('北侧教堂后方安全边界', { x: 68, z: -96 }, { x: -68, z: -96 }, 0.6, -4, 8),
-      cylinderCollider('圣水池完整盆体碰撞', 0, -8, 10.55, 0, 8.5),
+      segmentCollider('西侧海湾安全边界', { x: -68, z: -96 }, { x: -68, z: 66 }, 0.6, -4, 26),
+      segmentCollider('东侧海湾安全边界', { x: 68, z: 66 }, { x: 68, z: -96 }, 0.6, -4, 26),
+      segmentCollider('南侧海湾安全边界', { x: -68, z: 66 }, { x: 68, z: 66 }, 0.6, -4, 26),
+      segmentCollider('北侧教堂后方安全边界', { x: 68, z: -96 }, { x: -68, z: -96 }, 0.6, -4, 26),
+      ...createFountainBasinColliders(),
       boxCollider('私募教堂中央立面碰撞', 0, -98, 88, 12, 0, 65),
       boxCollider('私募教堂左翼碰撞', -62, -97, 46, 11, 0, 58),
       boxCollider('私募教堂右翼碰撞', 62, -97, 46, 11, 0, 58)
@@ -335,7 +449,18 @@ export class MushiTownWorld {
       MAP.linZhenyin
     );
     const seniorModel = createPastorSenior();
-    const seniorVisual = batchRigidCharacter(seniorModel, '牧司学姐');
+    const seniorVisual = seniorModel.userData.rig.visual;
+    const seniorHead = seniorModel.userData.rig.headPivot;
+    batchMeshesWithVertexColors(seniorVisual, {
+      name: '牧司学姐礼服身体刚性批次',
+      preserve: new Set([seniorHead])
+    });
+    const seniorHeadBatch = batchMeshesWithVertexColors(seniorHead, {
+      name: '牧司学姐白发面容高保真批次'
+    });
+    seniorHeadBatch.traverse((object) => {
+      if (object.isMesh) object.userData.preserveSoftwareDetail = true;
+    });
     seniorModel.userData.animate = ({ time = 0 } = {}) => {
       seniorVisual.position.y = Math.sin(time * 1.8) * 0.012;
       seniorVisual.rotation.z = Math.sin(time * 0.9) * 0.01;
@@ -384,6 +509,105 @@ export class MushiTownWorld {
       believerModel,
       { x: 17, y: 0, z: 27 }
     );
+    this.ambientCrowdNear = addAmbientCrowdGroup(
+      this,
+      '神圣广场近景多职业群众',
+      [
+        {
+          name: '金融街审批员',
+          kind: 'clerk',
+          x: -31,
+          z: 37,
+          rotation: 2.48,
+          colors: {
+            skin: 0xb8795d,
+            primary: 0xdce8ec,
+            secondary: 0x274f72,
+            hair: 0x25282d
+          }
+        },
+        {
+          name: '祷倌见习生',
+          kind: 'acolyte',
+          x: 29,
+          z: 36,
+          rotation: -2.56,
+          colors: {
+            skin: 0xd6a181,
+            primary: 0xf1eadb,
+            secondary: 0x527ca0,
+            hair: 0xebeef1
+          }
+        },
+        {
+          name: '红肠分店店员',
+          kind: 'vendor',
+          x: 34,
+          z: -22,
+          rotation: -1.26,
+          colors: {
+            skin: 0xc88c6d,
+            primary: 0xf1dfcf,
+            secondary: 0x8e3f47,
+            hair: 0x60402f
+          }
+        }
+      ]
+    );
+    this.ambientCrowdFar = addAmbientCrowdGroup(
+      this,
+      '神圣广场远景多职业群众',
+      [
+        {
+          name: '广场礼仪引导员',
+          kind: 'usher',
+          x: -34,
+          z: -29,
+          rotation: 1.08,
+          colors: {
+            skin: 0xa96f57,
+            primary: 0x314f6c,
+            secondary: 0xd2ad57,
+            hair: 0x332a28
+          }
+        },
+        {
+          name: '海景区朝礼信徒',
+          kind: 'believer',
+          x: -25,
+          z: 50,
+          rotation: 2.82,
+          colors: {
+            skin: 0xe0ad8c,
+            primary: 0xe7e0d2,
+            secondary: 0x667e91,
+            hair: 0x8b674f
+          }
+        },
+        {
+          name: '学生用品店实习生',
+          kind: 'student',
+          x: 27,
+          z: 51,
+          rotation: -2.86,
+          colors: {
+            skin: 0xbd8064,
+            primary: 0xe8eef0,
+            secondary: 0x416f75,
+            hair: 0x27323b
+          }
+        }
+      ]
+    );
+    this.ambientCitizenCount = 6;
+    this.ambientCitizenRoles = Object.freeze([
+      'clerk',
+      'acolyte',
+      'vendor',
+      'usher',
+      'believer',
+      'student'
+    ]);
     this.animatedCharacters.push(pingu, lin, senior, student, believer);
     this.baseColliders.push(
       cylinderCollider('Pingu碰撞', MAP.pingu.x, MAP.pingu.z, 0.48, 0, 1.8),
@@ -441,8 +665,44 @@ export class MushiTownWorld {
         points: ISLAND_POINTS,
         y: 0,
         walkable: true
+      },
+      {
+        name: '圣水池内盆可行走池底',
+        shape: 'circle',
+        center: FOUNTAIN_CENTER,
+        radius: FOUNTAIN_WATER_RADIUS,
+        y: 0.62,
+        walkable: true
+      },
+      {
+        name: '圣水池入口外侧一级台阶',
+        shape: 'box',
+        center: { x: 0, z: 3.05 },
+        width: 3.5,
+        depth: 1.25,
+        y: 0.28,
+        walkable: true
+      },
+      {
+        name: '圣水池入口中段二级台阶',
+        shape: 'box',
+        center: { x: 0, z: 2.15 },
+        width: 3.45,
+        depth: 1.1,
+        y: 0.5,
+        walkable: true
+      },
+      {
+        name: '圣水池入口内侧落脚台',
+        shape: 'box',
+        center: { x: 0, z: 1.28 },
+        width: 3.35,
+        depth: 1.15,
+        y: 0.68,
+        walkable: true
       }
     ];
+    this.scene.userData.flightBounds = FLIGHT_BOUNDS;
     this.scene.userData.staticColliders = this.baseColliders;
     this.scene.userData.solidColliders = [...this.baseColliders];
     this.scene.userData.colliders = this.scene.userData.solidColliders;
@@ -503,10 +763,22 @@ export class MushiTownWorld {
     return this.player.setRespawn(point, teleport);
   }
 
-  update(delta, input, movementYaw, allowMovement) {
+  update(
+    delta,
+    input,
+    movementFrame,
+    allowMovement,
+    flightSecondsAvailable = 0
+  ) {
     this.elapsed += delta;
     if (allowMovement) {
-      this.player.update(delta, input, movementYaw, this.scene.userData);
+      this.player.update(
+        delta,
+        input,
+        movementFrame,
+        this.scene.userData,
+        flightSecondsAvailable
+      );
     } else {
       this.player.character.userData.animate?.({ time: this.elapsed });
     }
@@ -582,17 +854,60 @@ export class MushiTownWorld {
     this.church.userData.setShiftSignal?.(true);
   }
 
+  isPlayerInFountainWater() {
+    const distance = Math.hypot(
+      this.player.position.x - FOUNTAIN_CENTER.x,
+      this.player.position.z - FOUNTAIN_CENTER.z
+    );
+    return (
+      distance <= FOUNTAIN_WATER_RADIUS &&
+      distance >= FOUNTAIN_CORE_RADIUS &&
+      this.player.position.y >= 0.5 &&
+      this.player.position.y <= 1.08
+    );
+  }
+
   setSoftwareRenderingMode(enabled) {
     if (!enabled || this.softwareRenderingMode) return;
     this.softwareRenderingMode = true;
     this.plaza.userData.highPaving.visible = false;
     this.plaza.userData.lowPaving.visible = true;
     this.distantCity.visible = false;
+    this.ambientCrowdFar.visible = false;
     const cloudBatch = this.scene.getObjectByName('高空体积云实例批次');
     if (cloudBatch) cloudBatch.visible = false;
+    const sideWindows = this.scene.getObjectByName('私募教堂侧面楼层窗');
+    if (sideWindows) sideWindows.visible = false;
+    const distantWaistlines = this.scene.getObjectByName(
+      '每十层神圣秩序金色腰线'
+    );
+    if (distantWaistlines) distantWaistlines.visible = false;
+    const secondaryShiftRing = this.scene.getObjectByName(
+      'Holy Shift 概念环 B'
+    );
+    if (secondaryShiftRing) secondaryShiftRing.visible = false;
     this.scene.traverse((object) => {
       if (object.name === '接触阴影') object.visible = false;
     });
+
+    const churchPreserve = new Set([
+      ...this.cameraCollisionMeshes,
+      this.church.userData.parts.shiftBeacon,
+      this.church.userData.parts.elevatorDisplay
+    ].filter(Boolean));
+    batchMeshesWithVertexColors(this.church, {
+      name: '私募教堂软件渲染顶点色总批次',
+      preserve: churchPreserve
+    });
+    const fountainPreserve = new Set([
+      ...this.cameraCollisionMeshes,
+      ...Object.values(this.fountain.userData.parts)
+    ].filter((part) => part?.isObject3D));
+    batchMeshesWithVertexColors(this.fountain, {
+      name: '圣水池软件渲染静态顶点色总批次',
+      preserve: fountainPreserve
+    });
+
     const animatedMaterialMeshes = new Set([
       '异常生水喷流',
       '异常生水水面',
@@ -642,6 +957,7 @@ export class MushiTownWorld {
         if (
           !object.isMesh ||
           object.isInstancedMesh ||
+          object.userData.preserveSoftwareDetail ||
           !object.geometry?.attributes?.position ||
           object.geometry.attributes.position.count < 540
         ) {
@@ -670,12 +986,22 @@ export class MushiTownWorld {
     };
     [
       ...this.animatedCharacters,
+      this.ambientCrowdNear,
       this.player,
       this.scene.getObjectByName('神圣广场家具运行时总批次源'),
       this.scene.getObjectByName('红肠食品集团神圣补给车独立资产')
     ]
       .filter(Boolean)
-      .forEach((root) => simplifyRoot(root, root === this.player ? 0.55 : 0.62));
+      .forEach((root) => {
+        const ratio = root === this.player
+          ? 0.55
+          : root.name === '牧司学姐'
+            ? 0.65
+            : root === this.ambientCrowdNear
+              ? 0.78
+              : 0.62;
+        simplifyRoot(root, ratio);
+      });
 
   }
 
@@ -687,7 +1013,7 @@ export class MushiTownWorld {
       Number.isFinite(point.z) &&
       pointInPolygon(point.x, point.z, ISLAND_POINTS) &&
       point.y > -0.3 &&
-      point.y < 7
+      point.y < FLIGHT_BOUNDS.maxY + 0.25
     );
   }
 

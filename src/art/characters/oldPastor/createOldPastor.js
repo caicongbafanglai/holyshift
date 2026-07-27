@@ -33,8 +33,8 @@ function addPastorHairAndBeard(headPivot) {
   headPivot.add(
     createMesh(
       createHairCapGeometry({
-        length: 0.1,
-        volume: 1.035,
+        length: 0.13,
+        volume: 1.09,
         name: '老牧师后脑分区银发壳'
       }),
       shadowMaterial,

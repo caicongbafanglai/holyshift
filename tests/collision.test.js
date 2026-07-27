@@ -135,6 +135,188 @@ describe('plaza collision and anti-softlock invariants', () => {
     expect(player.verticalStateLabel).toBe('GROUND');
   });
 
+  it('flies along the full camera direction while substepping around solid walls', () => {
+    const player = new Player();
+    const wall = {
+      name: 'flight-wall',
+      shape: 'box',
+      center: { x: 0, z: 0 },
+      width: 8,
+      depth: 0.3,
+      minY: -1,
+      maxY: 20
+    };
+    const navigation = {
+      ...flatNavigation([wall]),
+      flightBounds: {
+        minX: -20,
+        maxX: 20,
+        minY: 0.04,
+        maxY: 12,
+        minZ: -20,
+        maxZ: 20
+      }
+    };
+    const movementFrame = {
+      yaw: Math.PI,
+      forward: new THREE.Vector3(0, 0.5, -Math.sqrt(0.75)),
+      right: new THREE.Vector3(1, 0, 0)
+    };
+    player.position.set(0, 0.5, 3);
+
+    for (let frame = 0; frame < 30; frame += 1) {
+      player.update(
+        0.05,
+        heldInput('ctrl', 'shift', 'w'),
+        movementFrame,
+        navigation,
+        10
+      );
+      expect(
+        collidesAt(
+          player.position,
+          navigation.solidColliders,
+          player.collisionRadius,
+          player.collisionHeight
+        )
+      ).toBe(false);
+    }
+
+    expect(player.position.y).toBeGreaterThan(2);
+    expect(player.position.z).toBeGreaterThanOrEqual(
+      wall.depth / 2 + player.collisionRadius
+    );
+    expect(player.verticalStateLabel).toBe('FLYING');
+    expect(player.flightSecondsThisFrame).toBeCloseTo(0.05);
+  });
+
+  it('provides a collision-free stepped route into the healing fountain water', () => {
+    const world = new MushiTownWorld();
+    const player = world.player;
+    player.position.set(0, 0, 4.5);
+    player.landOnGround({ y: 0 });
+
+    for (let frame = 0; frame < 35; frame += 1) {
+      player.update(
+        0.05,
+        heldInput('w'),
+        Math.PI,
+        world.scene.userData
+      );
+    }
+
+    expect(world.isPlayerInFountainWater()).toBe(true);
+    expect(player.position.y).toBeCloseTo(0.62);
+    expect(
+      collidesAt(
+        player.position,
+        world.baseColliders,
+        player.collisionRadius,
+        player.collisionHeight
+      )
+    ).toBe(false);
+  });
+
+  it('settles beside an NPC instead of hovering or landing inside it after flight', () => {
+    const world = new MushiTownWorld();
+    const player = world.player;
+    const flightInput = heldInput('ctrl', 'shift', 'w');
+    const idleInput = heldInput();
+    const movementFrame = {
+      yaw: 0,
+      forward: new THREE.Vector3(0, 0, 1),
+      right: new THREE.Vector3(-1, 0, 0)
+    };
+    player.position.set(-31, 3, 37);
+    player.update(
+      0.01,
+      flightInput,
+      movementFrame,
+      world.scene.userData,
+      1
+    );
+
+    for (let frame = 0; frame < 60; frame += 1) {
+      player.update(
+        0.05,
+        idleInput,
+        Math.PI,
+        world.scene.userData
+      );
+    }
+
+    expect(player.verticalStateLabel).toBe('GROUND');
+    expect(player.position.y).toBe(0);
+    expect(world.isPositionValid(player.position)).toBe(true);
+    expect(
+      collidesAt(
+        player.position,
+        world.baseColliders,
+        player.collisionRadius,
+        player.collisionHeight
+      )
+    ).toBe(false);
+  });
+
+  it('keeps pitched flight inside the 3D island envelope across obstacle sweeps', () => {
+    const world = new MushiTownWorld();
+    const player = world.player;
+    const input = heldInput('ctrl', 'shift', 'w');
+    const directions = [
+      new THREE.Vector3(1, 0, 0),
+      new THREE.Vector3(-1, 0, 0),
+      new THREE.Vector3(0, 0.62, -0.78),
+      new THREE.Vector3(0, -0.62, 0.78)
+    ];
+    let exercised = 0;
+
+    for (const y of [1, 10, 21]) {
+      for (const x of [-60, -30, 0, 30, 60]) {
+        for (const z of [-88, -48, -8, 30, 60]) {
+          const start = new THREE.Vector3(x, y, z);
+          if (
+            collidesAt(
+              start,
+              world.baseColliders,
+              player.collisionRadius,
+              player.collisionHeight
+            )
+          ) {
+            continue;
+          }
+          for (const forward of directions) {
+            player.position.copy(start);
+            for (let frame = 0; frame < 10; frame += 1) {
+              player.update(
+                0.1,
+                input,
+                {
+                  yaw: Math.atan2(forward.x, forward.z),
+                  forward,
+                  right: new THREE.Vector3(-forward.z, 0, forward.x)
+                    .normalize()
+                },
+                world.scene.userData,
+                10
+              );
+              expect(world.isPositionValid(player.position)).toBe(true);
+              expect(
+                collidesAt(
+                  player.position,
+                  world.baseColliders,
+                  player.collisionRadius,
+                  player.collisionHeight
+                )
+              ).toBe(false);
+            }
+            exercised += 1;
+          }
+        }
+      }
+    }
+    expect(exercised).toBeGreaterThan(240);
+  });
+
   it('leaves a ground-backed collision-free interaction ring around every story target', () => {
     const world = new MushiTownWorld();
     const targets = [

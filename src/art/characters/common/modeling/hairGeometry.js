@@ -43,15 +43,15 @@ export function createHairCapGeometry({
       },
       {
         y: 0.278,
-        radiusX: 0.04 * build * volume,
-        radiusZ: 0.05 * build * volume,
+        radiusX: 0.008 * build * volume,
+        radiusZ: 0.01 * build * volume,
         centerZ: -0.03
       }
     ],
     {
       radialSegments: 20,
-      thetaStart: 0.72,
-      thetaLength: Math.PI * 2 - 1.44,
+      thetaStart: 0.56,
+      thetaLength: Math.PI * 2 - 1.12,
       capBottom: false,
       capTop: false,
       name

@@ -29,9 +29,9 @@ export class Renderer {
     this.instance.domElement.tabIndex = 0;
     this.instance.outputColorSpace = THREE.SRGBColorSpace;
     this.instance.toneMapping = THREE.ACESFilmicToneMapping;
-    this.instance.toneMappingExposure = 1.05;
+    this.instance.toneMappingExposure = 1.1;
     this.instance.shadowMap.enabled = false;
-    this.instance.setClearColor(0xb9dce5, 1);
+    this.instance.setClearColor(0xc9e8ef, 1);
     this.instance.info.autoReset = true;
 
     const gl = this.instance.getContext();

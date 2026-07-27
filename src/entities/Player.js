@@ -15,12 +15,15 @@ const COYOTE_TIME = 0.15;
 const JUMP_BUFFER_TIME = 0.12;
 const MAX_HORIZONTAL_MOVE_STEP = 0.15;
 const MAX_VERTICAL_MOVE_STEP = 0.08;
+const MAX_FLIGHT_MOVE_STEP = 0.1;
+const FLIGHT_SPEED = 8.6;
 const LOWEST_SAFE_Y = MAP.plazaY - 20;
 const EPSILON = 0.0001;
 const VERTICAL_STATES = {
   GROUNDED: 'grounded',
   JUMPING: 'jumping',
-  FALLING: 'falling'
+  FALLING: 'falling',
+  FLYING: 'flying'
 };
 
 function pointInPolygon(x, z, points) {
@@ -102,6 +105,13 @@ function surfaceHeightAt(surface, x, z) {
 
   if (surface.shape === 'box') {
     return pointInBoxSurface(x, z, surface) ? surface.y : null;
+  }
+
+  if (surface.shape === 'circle') {
+    return Math.hypot(x - surface.center.x, z - surface.center.z) <=
+      surface.radius + EPSILON
+      ? surface.y
+      : null;
   }
 
   if (surface.shape === 'rampBox') {
@@ -416,6 +426,11 @@ export class Player extends THREE.Group {
     this.dodgeCooldown = 0;
     this.dodgeDirection = new THREE.Vector3();
     this.dodgeSpeed = 16.5;
+    this.flightSpeed = FLIGHT_SPEED;
+    this.isFlying = false;
+    this.flightRequestedThisFrame = false;
+    this.flightSecondsThisFrame = 0;
+    this.flightFallThroughColliders = new Set();
     this.resetPoint = new THREE.Vector3(
       MAP.playerReset.x,
       MAP.playerReset.y,
@@ -433,6 +448,10 @@ export class Player extends THREE.Group {
     this.velocityY = 0;
     this.jumpBufferTimer = 0;
     this.coyoteTimer = COYOTE_TIME;
+    this.isFlying = false;
+    this.flightRequestedThisFrame = false;
+    this.flightSecondsThisFrame = 0;
+    this.flightFallThroughColliders?.clear();
     this.setVerticalState(VERTICAL_STATES.GROUNDED);
   }
 
@@ -453,7 +472,13 @@ export class Player extends THREE.Group {
     return true;
   }
 
-  update(delta, input, movementYaw = Math.PI, navigation = {}) {
+  update(
+    delta,
+    input,
+    movementFrame = Math.PI,
+    navigation = {},
+    flightSecondsAvailable = 0
+  ) {
     this.didResetThisFrame = false;
     this.elapsed += delta;
     this.attackAnimationTimer = Math.max(0, this.attackAnimationTimer - delta);
@@ -462,16 +487,46 @@ export class Player extends THREE.Group {
     this.dodgeCooldown = Math.max(0, this.dodgeCooldown - delta);
     this.movingThisFrame = false;
     this.sprintingThisFrame = false;
+    this.flightSecondsThisFrame = 0;
+    this.flightRequestedThisFrame = this.isFlightChordActive(input);
     if (this.resetIfBelowSafeHeight()) {
       return;
     }
 
-    this.updateMovement(delta, input, movementYaw, navigation);
+    const availableFlightSeconds = Number.isFinite(flightSecondsAvailable)
+      ? Math.max(0, flightSecondsAvailable)
+      : 0;
+    const wasFlying = this.isFlying;
+    if (this.flightRequestedThisFrame && availableFlightSeconds > 0) {
+      this.flightSecondsThisFrame = Math.min(delta, availableFlightSeconds);
+      this.updateFlightMovement(
+        this.flightSecondsThisFrame,
+        input,
+        movementFrame,
+        navigation
+      );
+    } else {
+      this.isFlying = false;
+      if (wasFlying) {
+        this.beginFlightDescent(
+          navigation.solidColliders || navigation.colliders || []
+        );
+      }
+      this.updateMovement(
+        delta,
+        input,
+        typeof movementFrame === 'number'
+          ? movementFrame
+          : movementFrame?.yaw ?? Math.PI,
+        navigation
+      );
+    }
     this.resetIfBelowSafeHeight();
     this.character.userData.animate?.({
       time: this.elapsed,
       moving: this.movingThisFrame,
       sprinting: this.sprintingThisFrame,
+      flying: this.isFlying,
       attackPhase: this.attackAnimationTimer > 0
         ? 1 - this.attackAnimationTimer / this.attackAnimationDuration
         : 0,
@@ -482,6 +537,169 @@ export class Player extends THREE.Group {
         ? 1 - this.hurtAnimationTimer / this.hurtAnimationDuration
         : 0
     });
+  }
+
+  isFlightChordActive(input) {
+    return Boolean(
+      input?.isDown?.('ctrl') &&
+      input.isDown('shift') &&
+      ['w', 'a', 's', 'd'].some((key) => input.isDown(key))
+    );
+  }
+
+  updateFlightMovement(delta, input, movementFrame, navigation = {}) {
+    const forwardAmount = (input.isDown('w') ? 1 : 0) - (input.isDown('s') ? 1 : 0);
+    const rightAmount = (input.isDown('d') ? 1 : 0) - (input.isDown('a') ? 1 : 0);
+    const movementYaw = typeof movementFrame === 'number'
+      ? movementFrame
+      : movementFrame?.yaw ?? Math.PI;
+    const frameForward = typeof movementFrame === 'object'
+      ? movementFrame?.forward
+      : null;
+    const frameRight = typeof movementFrame === 'object'
+      ? movementFrame?.right
+      : null;
+
+    if (
+      frameForward &&
+      [frameForward.x, frameForward.y, frameForward.z].every(Number.isFinite)
+    ) {
+      FORWARD.set(frameForward.x, frameForward.y, frameForward.z).normalize();
+    } else {
+      FORWARD.set(Math.sin(movementYaw), 0, Math.cos(movementYaw));
+    }
+    if (
+      frameRight &&
+      [frameRight.x, frameRight.y, frameRight.z].every(Number.isFinite)
+    ) {
+      RIGHT.set(frameRight.x, frameRight.y, frameRight.z).normalize();
+    } else {
+      RIGHT.set(-Math.cos(movementYaw), 0, Math.sin(movementYaw));
+    }
+
+    MOVE_VECTOR
+      .set(0, 0, 0)
+      .addScaledVector(FORWARD, forwardAmount)
+      .addScaledVector(RIGHT, rightAmount);
+    if (MOVE_VECTOR.lengthSq() < EPSILON) {
+      this.isFlying = false;
+      return;
+    }
+
+    MOVE_VECTOR.normalize().multiplyScalar(this.flightSpeed * delta);
+    const stepCount = Math.max(
+      1,
+      Math.ceil(MOVE_VECTOR.length() / MAX_FLIGHT_MOVE_STEP)
+    );
+    STEP_VECTOR.copy(MOVE_VECTOR).multiplyScalar(1 / stepCount);
+    const colliders =
+      navigation.solidColliders || navigation.colliders || [];
+    let moved = false;
+
+    this.velocityY = 0;
+    this.flightFallThroughColliders.clear();
+    this.jumpBufferTimer = 0;
+    this.coyoteTimer = 0;
+    this.dodgeTimer = 0;
+    this.setVerticalState(VERTICAL_STATES.FLYING);
+    this.isFlying = true;
+
+    for (let step = 0; step < stepCount; step += 1) {
+      const fullCandidate = {
+        x: this.position.x + STEP_VECTOR.x,
+        y: this.position.y + STEP_VECTOR.y,
+        z: this.position.z + STEP_VECTOR.z
+      };
+      if (this.isFlightPositionAllowed(fullCandidate, navigation, colliders)) {
+        this.position.set(
+          fullCandidate.x,
+          fullCandidate.y,
+          fullCandidate.z
+        );
+        moved = true;
+        continue;
+      }
+
+      const axes = ['x', 'y', 'z'].sort(
+        (left, right) =>
+          Math.abs(STEP_VECTOR[right]) - Math.abs(STEP_VECTOR[left])
+      );
+      let slid = false;
+      for (const axis of axes) {
+        if (Math.abs(STEP_VECTOR[axis]) < EPSILON) continue;
+        const candidate = {
+          x: this.position.x,
+          y: this.position.y,
+          z: this.position.z
+        };
+        candidate[axis] += STEP_VECTOR[axis];
+        if (!this.isFlightPositionAllowed(candidate, navigation, colliders)) {
+          continue;
+        }
+        this.position[axis] = candidate[axis];
+        slid = true;
+        moved = true;
+      }
+      if (!slid) break;
+    }
+
+    this.movingThisFrame = moved;
+    this.sprintingThisFrame = moved;
+    const horizontalLength = Math.hypot(MOVE_VECTOR.x, MOVE_VECTOR.z);
+    if (horizontalLength > EPSILON) {
+      this.rotation.y = Math.atan2(MOVE_VECTOR.x, MOVE_VECTOR.z);
+    }
+  }
+
+  isFlightPositionAllowed(position, navigation, colliders) {
+    const bounds = navigation.flightBounds;
+    if (
+      !position ||
+      ![position.x, position.y, position.z].every(Number.isFinite) ||
+      (bounds && (
+        position.x < bounds.minX ||
+        position.x > bounds.maxX ||
+        position.y < bounds.minY ||
+        position.y > bounds.maxY ||
+        position.z < bounds.minZ ||
+        position.z > bounds.maxZ
+      ))
+    ) {
+      return false;
+    }
+    return !collidesAt(
+      position,
+      colliders,
+      this.collisionRadius,
+      this.collisionHeight
+    );
+  }
+
+  beginFlightDescent(colliders = []) {
+    this.flightFallThroughColliders.clear();
+    for (const collider of colliders) {
+      if (
+        !Number.isFinite(collider.maxY) ||
+        collider.maxY > this.position.y + EPSILON
+      ) {
+        continue;
+      }
+      const probe = {
+        x: this.position.x,
+        y: collider.maxY - Math.min(0.08, this.collisionHeight * 0.1),
+        z: this.position.z
+      };
+      if (
+        collidesAt(
+          probe,
+          [collider],
+          this.collisionRadius,
+          this.collisionHeight
+        )
+      ) {
+        this.flightFallThroughColliders.add(collider);
+      }
+    }
   }
 
   updateMovement(delta, input, movementYaw = Math.PI, navigation = {}) {
@@ -701,8 +919,20 @@ export class Player extends THREE.Group {
           previousY + GROUND_CHECK_DISTANCE
         );
         if (landingGround) {
-          this.landOnGround(landingGround);
-          currentGround = landingGround;
+          const safeLanding = this.findSafeLanding(
+            landingGround,
+            walkableSurfaces,
+            solidColliders
+          );
+          if (safeLanding) {
+            this.position.x = safeLanding.x;
+            this.position.z = safeLanding.z;
+            this.landOnGround(safeLanding.ground);
+            currentGround = safeLanding.ground;
+          } else {
+            this.landOnGround(landingGround);
+            currentGround = landingGround;
+          }
         } else {
           const hitSolid = this.moveVerticallyWithCollision(nextY - previousY, solidColliders);
           if (hitSolid) {
@@ -733,12 +963,69 @@ export class Player extends THREE.Group {
     return currentGround;
   }
 
+  findSafeLanding(ground, walkableSurfaces, solidColliders) {
+    const currentCandidate = {
+      x: this.position.x,
+      y: ground.y,
+      z: this.position.z
+    };
+    if (
+      !collidesAt(
+        currentCandidate,
+        solidColliders,
+        this.collisionRadius,
+        this.collisionHeight
+      )
+    ) {
+      return {
+        x: currentCandidate.x,
+        z: currentCandidate.z,
+        ground
+      };
+    }
+
+    const radii = [0.45, 0.7, 0.95, 1.25, 1.6, 2.05];
+    for (const radius of radii) {
+      for (let index = 0; index < 16; index += 1) {
+        const angle = (index / 16) * Math.PI * 2;
+        const x = this.position.x + Math.cos(angle) * radius;
+        const z = this.position.z + Math.sin(angle) * radius;
+        const candidateGround = findWalkableGround(
+          x,
+          z,
+          walkableSurfaces,
+          this.position.y + MAX_STEP_HEIGHT
+        );
+        if (!candidateGround) continue;
+        const candidate = { x, y: candidateGround.y, z };
+        if (
+          collidesAt(
+            candidate,
+            solidColliders,
+            this.collisionRadius,
+            this.collisionHeight
+          )
+        ) {
+          continue;
+        }
+        return { x, z, ground: candidateGround };
+      }
+    }
+    return null;
+  }
+
   moveVerticallyWithCollision(deltaY, solidColliders = []) {
     if (deltaY === 0) {
       return false;
     }
 
-    if (solidColliders.length === 0) {
+    const collidersToTest = deltaY < 0
+      ? solidColliders.filter(
+          (collider) => !this.flightFallThroughColliders.has(collider)
+        )
+      : solidColliders;
+
+    if (collidersToTest.length === 0) {
       this.position.y += deltaY;
       return false;
     }
@@ -751,7 +1038,7 @@ export class Player extends THREE.Group {
         y: this.position.y + stepY,
         z: this.position.z
       };
-      if (collidesAt(nextPosition, solidColliders, this.collisionRadius, this.collisionHeight)) {
+      if (collidesAt(nextPosition, collidersToTest, this.collisionRadius, this.collisionHeight)) {
         return true;
       }
       this.position.y = nextPosition.y;
@@ -815,6 +1102,7 @@ export class Player extends THREE.Group {
   landOnGround(ground) {
     this.position.y = ground.y;
     this.velocityY = 0;
+    this.flightFallThroughColliders.clear();
     this.setVerticalState(VERTICAL_STATES.GROUNDED);
   }
 
@@ -843,6 +1131,7 @@ export class Player extends THREE.Group {
   }
 
   get verticalStateLabel() {
+    if (this.verticalState === VERTICAL_STATES.FLYING) return 'FLYING';
     if (this.verticalState === VERTICAL_STATES.JUMPING) return 'JUMPING';
     if (this.verticalState === VERTICAL_STATES.FALLING) return 'FALLING';
     return 'GROUND';

@@ -45,7 +45,9 @@ export const PLAYER_COMBAT = {
   shiftCost: 40,
   shiftCooldown: 2.8,
   dodgeStaminaCost: 24,
-  staminaRecoveryPerSecond: 22
+  staminaRecoveryPerSecond: 22,
+  flightStaminaPerSecond: 18,
+  fountainHealPerSecond: 30
 } as const;
 
 export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
@@ -143,7 +145,7 @@ export const DIALOGUES: Record<string, DialogueLine[]> = {
     },
     {
       speaker: '老牧师',
-      text: '圣水变生水，说明流程有点生。不要慌，牧已成舟。'
+      text: '我丢雷楼木！圣水变生水，说明流程有点生。先去看看是谁动了“圣”字。'
     },
     {
       speaker: '牧司学姐',
@@ -153,7 +155,7 @@ export const DIALOGUES: Record<string, DialogueLine[]> = {
   fountainDiscovery: [
     {
       speaker: '老牧师',
-      text: '水质清澈，审批齐全，偏偏“圣”没了。鬼不可怕，可怕的是鬼已经通过审批。'
+      text: '我丢雷楼木！水质清澈，审批齐全，偏偏“圣”没了——而且这事居然已经通过审批。'
     },
     {
       speaker: '系统',
@@ -199,7 +201,7 @@ export const DIALOGUES: Record<string, DialogueLine[]> = {
   restored: [
     {
       speaker: '老牧师',
-      text: 'Holy Shift——把“圣”移回圣水。阿门，不是 Amen，是俺们一起上。'
+      text: '我丢雷楼木！Holy Shift——把“圣”给我移回圣水！'
     },
     {
       speaker: '系统',
@@ -217,7 +219,7 @@ export const DIALOGUES: Record<string, DialogueLine[]> = {
     },
     {
       speaker: '老牧师',
-      text: '神圣不可怕，神剩才可怕。看来上面还剩了一层没说完的话。'
+      text: '我丢雷楼木！第 191 层连我的签到都敢代办。看来上面还有没说完的话。'
     },
     {
       speaker: '系统',

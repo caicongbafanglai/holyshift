@@ -30,8 +30,8 @@ function addHairAndFacialHair(headPivot) {
   headPivot.add(
     createMesh(
       createHairCapGeometry({
-        volume: 1.045,
-        length: 0.065,
+        volume: 1.1,
+        length: 0.09,
         name: '林镇阴短发分区发壳拓扑'
       }),
       grey,

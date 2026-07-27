@@ -245,6 +245,7 @@ export function animateHumanoid(model, {
   time = 0,
   moving = false,
   sprinting = false,
+  flying = false,
   attackPhase = 0,
   castPhase = 0,
   hurtPhase = 0,
@@ -262,6 +263,20 @@ export function animateHumanoid(model, {
   const armStride = stride * 0.72;
   rig.leftArm.upper.rotation.x += (-armStride - rig.leftArm.upper.rotation.x) * settle;
   rig.rightArm.upper.rotation.x += (armStride - rig.rightArm.upper.rotation.x) * settle;
+
+  if (flying && attackPhase <= 0 && castPhase <= 0) {
+    rig.leftArm.upper.rotation.x += (-0.72 - rig.leftArm.upper.rotation.x) * 0.22;
+    rig.rightArm.upper.rotation.x += (-0.72 - rig.rightArm.upper.rotation.x) * 0.22;
+    rig.leftArm.upper.rotation.z = -0.28;
+    rig.rightArm.upper.rotation.z = 0.28;
+    rig.leftLeg.upper.rotation.x = 0.2;
+    rig.rightLeg.upper.rotation.x = -0.08;
+    rig.leftLeg.lower.rotation.x = 0.28;
+    rig.rightLeg.lower.rotation.x = 0.18;
+    rig.hips.rotation.x = -0.12;
+  } else {
+    rig.hips.rotation.x *= 0.78;
+  }
 
   if (attackPhase > 0) {
     const swing = Math.sin(attackPhase * Math.PI);

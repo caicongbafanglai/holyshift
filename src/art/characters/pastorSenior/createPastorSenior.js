@@ -27,14 +27,14 @@ import {
 } from '../common/modeling/organicGeometry.js';
 
 function addSeniorHair(headPivot) {
-  const hairMaterial = createCharacterMaterial(0x47362d, { roughness: 0.88 });
-  const hairHighlight = createCharacterMaterial(0x6c5140, { roughness: 0.86 });
+  const hairMaterial = createCharacterMaterial(0xdbe4ec, { roughness: 0.88 });
+  const hairHighlight = createCharacterMaterial(0xf8fbff, { roughness: 0.84 });
   headPivot.add(
     createMesh(
       createHairCapGeometry({
         build: 0.94,
-        length: 0.1,
-        volume: 1.06,
+        length: 0.17,
+        volume: 1.15,
         name: '牧司学姐后脑发壳拓扑'
       }),
       hairMaterial,
@@ -69,8 +69,11 @@ function addSeniorHair(headPivot) {
   const backLocks = [
     [[-0.18, 0.13, -0.14], [-0.23, -0.08, -0.17], [-0.19, -0.34, -0.12]],
     [[-0.07, 0.18, -0.2], [-0.1, -0.08, -0.235], [-0.065, -0.4, -0.15]],
+    [[-0.025, 0.255, -0.205], [-0.035, 0.02, -0.275], [-0.02, -0.44, -0.19]],
     [[0.07, 0.18, -0.2], [0.1, -0.08, -0.235], [0.065, -0.4, -0.15]],
-    [[0.18, 0.13, -0.14], [0.23, -0.08, -0.17], [0.19, -0.34, -0.12]]
+    [[0.18, 0.13, -0.14], [0.23, -0.08, -0.17], [0.19, -0.34, -0.12]],
+    [[-0.225, 0.12, -0.035], [-0.255, -0.08, -0.07], [-0.225, -0.31, -0.035]],
+    [[0.225, 0.12, -0.035], [0.255, -0.08, -0.07], [0.225, -0.31, -0.035]]
   ];
   backLocks.forEach((points, index) => {
     headPivot.add(
@@ -381,7 +384,7 @@ export function createPastorSenior() {
   addExpressiveFace(rig.headPivot, {
     skin: 0xd3a082,
     eye: 0x255779,
-    brow: 0x42382f,
+    brow: 0x657482,
     smile: 0x8a4f4f,
     ageLines: false,
     feminine: true,
@@ -398,7 +401,7 @@ export function createPastorSenior() {
   model.userData.characterQuality = Object.freeze({
     silhouette: '双侧编发、导告冠环、短肩披、开襟祷倌礼裙',
     faceLayers: 8,
-    hairClumps: 20,
+    hairClumps: 23,
     handTopology: '独立手指',
     authoredGeometry: true
   });

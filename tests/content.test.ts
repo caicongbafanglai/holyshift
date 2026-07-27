@@ -57,5 +57,15 @@ describe('Holy Shift world bible v0.3 content', () => {
       PLAYER_COMBAT.maxStamina
     );
     expect(PLAYER_COMBAT.lightRange).toBeGreaterThan(2);
+    expect(PLAYER_COMBAT.flightStaminaPerSecond).toBeGreaterThan(0);
+    expect(PLAYER_COMBAT.fountainHealPerSecond).toBeGreaterThan(0);
+  });
+
+  it('uses the revised old pastor catchphrase without retaining the retired ones', () => {
+    const text = JSON.stringify(DIALOGUES);
+    expect(text).toContain('我丢雷楼木！');
+    expect(text).not.toContain('阿门，不是 Amen');
+    expect(text).not.toContain('神圣不可怕，神剩才可怕');
+    expect(text).not.toContain('不要慌，牧已成舟');
   });
 });

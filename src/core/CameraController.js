@@ -24,6 +24,11 @@ export class CameraController {
     this.collisionObjects = [];
     this.raycaster = new THREE.Raycaster();
     this.justSwitched = true;
+    this.frameBasis = {
+      yaw: this.yaw,
+      forward: new THREE.Vector3(),
+      right: new THREE.Vector3()
+    };
     this.resize();
   }
 
@@ -106,6 +111,24 @@ export class CameraController {
 
   get movementYaw() {
     return this.yaw;
+  }
+
+  get movementFrame() {
+    const horizontalCosine = Math.cos(this.pitch);
+    this.frameBasis.yaw = this.yaw;
+    this.frameBasis.forward
+      .set(
+        Math.sin(this.yaw) * horizontalCosine,
+        Math.sin(this.pitch),
+        Math.cos(this.yaw) * horizontalCosine
+      )
+      .normalize();
+    this.frameBasis.right.set(
+      -Math.cos(this.yaw),
+      0,
+      Math.sin(this.yaw)
+    );
+    return this.frameBasis;
   }
 
   get label() {

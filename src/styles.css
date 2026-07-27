@@ -82,8 +82,8 @@ select:focus-visible {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(3, 19, 35, 0.18), transparent 18%, transparent 78%, rgba(2, 12, 23, 0.28)),
-    radial-gradient(circle at center, transparent 58%, rgba(1, 11, 20, 0.25) 100%);
+    linear-gradient(180deg, rgba(3, 19, 35, 0.11), transparent 18%, transparent 78%, rgba(2, 12, 23, 0.19)),
+    radial-gradient(circle at center, transparent 62%, rgba(1, 11, 20, 0.16) 100%);
 }
 
 .crosshair {
@@ -414,6 +414,10 @@ kbd {
 .key-guide__body > div {
   display: grid;
   gap: 3px;
+}
+
+.key-guide__body > .key-guide__wide {
+  grid-column: 1 / -1;
 }
 
 .key-guide__body span {

@@ -40,12 +40,17 @@ export class ActionCombat {
     this.attackCooldown = Math.max(0, this.attackCooldown - delta);
     this.shiftCooldown = Math.max(0, this.shiftCooldown - delta);
     this.comboWindow = Math.max(0, this.comboWindow - delta);
-    this.playerState.stamina = recoverResource(
-      this.playerState.stamina,
-      PLAYER_COMBAT.maxStamina,
-      PLAYER_COMBAT.staminaRecoveryPerSecond,
-      delta
-    );
+    if (
+      !this.world.player.isFlying &&
+      !this.world.player.flightRequestedThisFrame
+    ) {
+      this.playerState.stamina = recoverResource(
+        this.playerState.stamina,
+        PLAYER_COMBAT.maxStamina,
+        PLAYER_COMBAT.staminaRecoveryPerSecond,
+        delta
+      );
+    }
 
     if (enabled) {
       if (
@@ -60,7 +65,13 @@ export class ActionCombat {
       ) {
         this.holyShift();
       }
-      if (input.consumePressed('ctrl')) this.dodge(input, cameraYaw);
+      if (
+        !this.world.player.flightRequestedThisFrame &&
+        !input.isDown('shift') &&
+        input.consumePressed('ctrl')
+      ) {
+        this.dodge(input, cameraYaw);
+      }
     }
 
     for (const enemy of this.world.enemies.values()) {

@@ -50,4 +50,20 @@ describe('dual-view camera safety', () => {
     controller.update(player, 1 / 60, idleInput, false);
     expect(player.visible).toBe(true);
   });
+
+  it('exposes a normalized full-pitch movement basis for view-directed flight', () => {
+    const controller = new CameraController({
+      clientWidth: 1280,
+      clientHeight: 720
+    });
+    controller.yaw = Math.PI / 3;
+    controller.pitch = Math.PI / 6;
+    const frame = controller.movementFrame;
+
+    expect(frame.yaw).toBeCloseTo(Math.PI / 3);
+    expect(frame.forward.length()).toBeCloseTo(1);
+    expect(frame.forward.y).toBeCloseTo(0.5);
+    expect(frame.right.length()).toBeCloseTo(1);
+    expect(frame.forward.dot(frame.right)).toBeCloseTo(0);
+  });
 });

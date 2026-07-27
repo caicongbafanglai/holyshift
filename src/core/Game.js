@@ -41,6 +41,7 @@ export class Game {
     this.dialogueLines = [];
     this.dialogueIndex = 0;
     this.dialogueCompletion = null;
+    this.wasInHealingWater = false;
 
     this.renderer = new Renderer(container, this.save.settings.quality);
     this.world = new MushiTownWorld();
@@ -138,6 +139,16 @@ export class Game {
       value: Object.freeze({
         teleportTo: (id) =>
           teleportNear(this.world.interactableObjects.get(id)),
+        teleportNearPoint: (x, z) => {
+          const targetX = Number(x);
+          const targetZ = Number(z);
+          if (!Number.isFinite(targetX) || !Number.isFinite(targetZ)) {
+            return false;
+          }
+          return teleportNear({
+            position: { x: targetX, y: 0, z: targetZ }
+          });
+        },
         teleportToEnemy: (id) =>
           teleportNear(this.world.enemies.get(id), 2.65),
         defeatEnemy: (id) => {
@@ -152,6 +163,27 @@ export class Game {
             Math.max(0, Number(amount) || 0)
           );
           return this.save.player.shift;
+        },
+        setPlayerHealth: (amount = PLAYER_COMBAT.maxHp) => {
+          this.save.player.hp = Math.min(
+            PLAYER_COMBAT.maxHp,
+            Math.max(1, Number(amount) || 1)
+          );
+          return this.save.player.hp;
+        },
+        teleportIntoFountain: () => {
+          const ground = findWalkableGround(
+            5,
+            -8,
+            this.world.scene.userData.walkableSurfaces,
+            1
+          );
+          if (!ground) return false;
+          this.world.player.position.set(5, ground.y, -8);
+          this.world.player.landOnGround(ground);
+          this.camera.resetView();
+          this.updateHud();
+          return this.world.isPlayerInFountainWater();
         },
         useShiftAtFountain: () => {
           this.save.player.shift = PLAYER_COMBAT.maxShift;
@@ -175,8 +207,9 @@ export class Game {
             this.world.update(
               1 / 60,
               this.input,
-              this.camera.movementYaw,
-              true
+              this.camera.movementFrame,
+              true,
+              this.save.player.stamina / PLAYER_COMBAT.flightStaminaPerSecond
             );
             this.combat.update(
               1 / 60,
@@ -210,7 +243,12 @@ export class Game {
               }
             ])
           ),
-          renderer: this.renderer.stats
+          renderer: this.renderer.stats,
+          traversal: {
+            flying: this.world.player.isFlying,
+            flightRequested: this.world.player.flightRequestedThisFrame,
+            inFountainWater: this.world.isPlayerInFountainWater()
+          }
         })
       })
     });
@@ -651,6 +689,30 @@ export class Game {
     }
   }
 
+  updateTraversalResources(delta) {
+    const flightSeconds = this.world.player.flightSecondsThisFrame;
+    if (flightSeconds > 0) {
+      this.save.player.stamina = Math.max(
+        0,
+        this.save.player.stamina -
+          flightSeconds * PLAYER_COMBAT.flightStaminaPerSecond
+      );
+    }
+
+    const inHealingWater = this.world.isPlayerInFountainWater();
+    if (inHealingWater && this.save.player.hp < PLAYER_COMBAT.maxHp) {
+      this.save.player.hp = Math.min(
+        PLAYER_COMBAT.maxHp,
+        this.save.player.hp + PLAYER_COMBAT.fountainHealPerSecond * delta
+      );
+      if (!this.wasInHealingWater) {
+        this.ui.showToast('圣水正在恢复生命。', 1800);
+        this.audio.play('holy');
+      }
+    }
+    this.wasInHealingWater = inHealingWater;
+  }
+
   updateHud() {
     const nearest =
       this.mode === 'explore'
@@ -686,10 +748,12 @@ export class Game {
     this.world.update(
       delta,
       this.input,
-      this.camera.movementYaw,
-      simulationActive
+      this.camera.movementFrame,
+      simulationActive,
+      this.save.player.stamina / PLAYER_COMBAT.flightStaminaPerSecond
     );
     if (simulationActive) {
+      this.updateTraversalResources(delta);
       this.combat.update(
         delta,
         this.input,

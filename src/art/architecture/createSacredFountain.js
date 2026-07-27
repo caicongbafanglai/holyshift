@@ -41,6 +41,28 @@ export function createSacredFountain() {
     [0, 1.04, 0],
     [Math.PI / 2, 0, 0]
   );
+  const accessSteps = new THREE.Group();
+  accessSteps.name = '圣水池南侧可进入祝福台阶';
+  [
+    { name: '外侧一级台阶', z: 11.05, width: 3.5, depth: 1.25, height: 0.28 },
+    { name: '中段二级台阶', z: 10.15, width: 3.45, depth: 1.1, height: 0.5 },
+    { name: '内侧跳水落脚台', z: 9.28, width: 3.35, depth: 1.15, height: 0.68 }
+  ].forEach((step) => {
+    accessSteps.add(
+      createMesh(
+        new THREE.BoxGeometry(step.width, step.height, step.depth, 3, 1, 2),
+        SACRED_MATERIALS.ivoryWarm,
+        `圣水池${step.name}`,
+        [0, step.height / 2, step.z]
+      ),
+      createMesh(
+        new THREE.BoxGeometry(step.width - 0.16, 0.035, step.depth - 0.12),
+        SACRED_MATERIALS.polishedGold,
+        `圣水池${step.name}金色防滑圣纹`,
+        [0, step.height + 0.018, step.z]
+      )
+    );
+  });
   const rawWater = createMesh(
     new THREE.CircleGeometry(9.35, 72),
     SACRED_MATERIALS.waterRaw,
@@ -151,6 +173,7 @@ export function createSacredFountain() {
     base,
     lowerBasin,
     lowerRim,
+    accessSteps,
     rawWater,
     holyWater,
     centralPlinth,
