@@ -1,6 +1,338 @@
 import * as THREE from 'three';
-import { createCharacterMaterial, SACRED_MATERIALS } from '../../materials/sacredMaterials.js';
+import {
+  createCharacterMaterial,
+  SACRED_MATERIALS
+} from '../../materials/sacredMaterials.js';
 import { createContactShadow, createMesh } from '../../modeling/primitives.js';
+import { createPenguinFootGeometry } from '../common/modeling/anatomyGeometry.js';
+import { createEyeLensGeometry } from '../common/modeling/facialGeometry.js';
+import {
+  createExtrudedPanelGeometry,
+  createGarmentPipingGeometry
+} from '../common/modeling/garmentGeometry.js';
+import {
+  createCurveSolidGeometry,
+  createProfiledSurfaceGeometry
+} from '../common/modeling/organicGeometry.js';
+
+function createBeakGeometry() {
+  const width = 0.24;
+  const height = 0.14;
+  const depth = 0.24;
+  const positions = [
+    -width / 2, height * 0.35, 0,
+    width / 2, height * 0.35, 0,
+    -width * 0.42, -height * 0.45, 0,
+    width * 0.42, -height * 0.45, 0,
+    0, height * 0.08, depth,
+    0, height * 0.53, depth * 0.28,
+    0, -height * 0.55, depth * 0.25
+  ];
+  const indices = [
+    0, 1, 5,
+    0, 5, 4,
+    1, 4, 5,
+    0, 4, 2,
+    1, 3, 4,
+    2, 4, 6,
+    4, 3, 6,
+    0, 2, 1,
+    1, 2, 3
+  ];
+  const geometry = new THREE.BufferGeometry();
+  geometry.name = 'Pingu上下喙一体雕刻拓扑';
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(positions, 3)
+  );
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function createPinguBody(visual, materials) {
+  const body = createMesh(
+    createProfiledSurfaceGeometry(
+      [
+        { y: 0.13, radiusX: 0.16, radiusZ: 0.14 },
+        { y: 0.24, radiusX: 0.31, radiusZ: 0.27 },
+        { y: 0.49, radiusX: 0.4, radiusZ: 0.34, frontBias: 0.018 },
+        { y: 0.76, radiusX: 0.41, radiusZ: 0.35, frontBias: 0.025 },
+        { y: 0.98, radiusX: 0.32, radiusZ: 0.29 },
+        { y: 1.09, radiusX: 0.2, radiusZ: 0.2 }
+      ],
+      { radialSegments: 24, name: 'Pingu梨形躯干拓扑' }
+    ),
+    materials.black,
+    'Pingu梨形羽体'
+  );
+  const belly = createMesh(
+    createProfiledSurfaceGeometry(
+      [
+        { y: 0.25, radiusX: 0.17, radiusZ: 0.275, centerZ: 0.035 },
+        { y: 0.38, radiusX: 0.3, radiusZ: 0.34, centerZ: 0.025 },
+        { y: 0.65, radiusX: 0.34, radiusZ: 0.385, centerZ: 0.02 },
+        { y: 0.88, radiusX: 0.28, radiusZ: 0.35, centerZ: 0.012 },
+        { y: 1.01, radiusX: 0.15, radiusZ: 0.27 }
+      ],
+      {
+        radialSegments: 12,
+        thetaStart: -0.72,
+        thetaLength: 1.44,
+        capTop: false,
+        capBottom: false,
+        name: 'Pingu腹部羽色分区拓扑'
+      }
+    ),
+    materials.white,
+    'Pingu奶白腹部羽区'
+  );
+  const head = createMesh(
+    createProfiledSurfaceGeometry(
+      [
+        { y: 0.95, radiusX: 0.16, radiusZ: 0.15 },
+        { y: 1.03, radiusX: 0.3, radiusZ: 0.27 },
+        { y: 1.19, radiusX: 0.36, radiusZ: 0.32, frontBias: 0.015 },
+        { y: 1.36, radiusX: 0.34, radiusZ: 0.31 },
+        { y: 1.48, radiusX: 0.24, radiusZ: 0.23 },
+        { y: 1.54, radiusX: 0.08, radiusZ: 0.08 }
+      ],
+      { radialSegments: 24, name: 'Pingu额颊后脑一体拓扑' }
+    ),
+    materials.black,
+    'Pingu额颊后脑羽体'
+  );
+  const facePatch = createMesh(
+    createProfiledSurfaceGeometry(
+      [
+        { y: 1.08, radiusX: 0.15, radiusZ: 0.285, centerZ: 0.04 },
+        { y: 1.18, radiusX: 0.27, radiusZ: 0.36, centerZ: 0.025 },
+        { y: 1.34, radiusX: 0.27, radiusZ: 0.355, centerZ: 0.018 },
+        { y: 1.44, radiusX: 0.15, radiusZ: 0.28, centerZ: 0.012 }
+      ],
+      {
+        radialSegments: 10,
+        thetaStart: -0.68,
+        thetaLength: 1.36,
+        capTop: false,
+        capBottom: false,
+        name: 'Pingu脸部双叶白斑拓扑'
+      }
+    ),
+    materials.white,
+    'Pingu脸部双叶白斑'
+  );
+  visual.add(body, belly, head, facePatch);
+}
+
+function addPinguFace(visual, materials) {
+  for (const side of [-1, 1]) {
+    const eye = createMesh(
+      createEyeLensGeometry(0.053, 0.063, {
+        segments: 18,
+        bulge: 0.01,
+        upperLift: 0.08,
+        name: `${side < 0 ? '左' : '右'}Pingu眼白拓扑`
+      }),
+      materials.white,
+      `Pingu${side < 0 ? '左' : '右'}眼白`,
+      [side * 0.105, 1.3, 0.339]
+    );
+    const iris = createMesh(
+      createEyeLensGeometry(0.028, 0.039, {
+        segments: 16,
+        bulge: 0.006,
+        upperLift: 0,
+        name: `${side < 0 ? '左' : '右'}Pingu瞳孔拓扑`
+      }),
+      materials.eye,
+      `Pingu${side < 0 ? '左' : '右'}瞳孔`,
+      [side * 0.105, 1.294, 0.352]
+    );
+    const catchlight = createMesh(
+      createEyeLensGeometry(0.007, 0.01, {
+        segments: 10,
+        bulge: 0.003,
+        upperLift: 0,
+        name: `${side < 0 ? '左' : '右'}Pingu眼神光拓扑`
+      }),
+      materials.catchlight,
+      `Pingu${side < 0 ? '左' : '右'}眼神光`,
+      [side * 0.114, 1.314, 0.361]
+    );
+    visual.add(eye, iris, catchlight);
+  }
+  visual.add(
+    createMesh(
+      createBeakGeometry(),
+      materials.orange,
+      'Pingu上下喙',
+      [0, 1.19, 0.34]
+    )
+  );
+}
+
+function addPinguLimbs(root, visual, materials) {
+  for (const side of [-1, 1]) {
+    const label = side < 0 ? '左' : '右';
+    const wing = new THREE.Group();
+    wing.name = `Pingu${label}翅骨架`;
+    wing.position.set(side * 0.34, 0.92, 0);
+    wing.add(
+      createMesh(
+        createCurveSolidGeometry({
+          points: [
+            [0, 0.08, 0],
+            [side * 0.055, -0.12, 0.005],
+            [side * 0.095, -0.36, 0.025],
+            [side * 0.07, -0.48, 0.04]
+          ],
+          widths: [0.135, 0.14, 0.105, 0.03],
+          depths: [0.065, 0.06, 0.045, 0.012],
+          segments: 10,
+          radialSegments: 7,
+          tipPinch: 0.2,
+          name: `Pingu${label}分节鳍翅拓扑`
+        }),
+        materials.black,
+        `Pingu${label}分节鳍翅`
+      )
+    );
+    visual.add(
+      wing,
+      createMesh(
+        createPenguinFootGeometry(side),
+        materials.orange,
+        `Pingu${label}三趾蹼足`
+      )
+    );
+    if (side < 0) root.userData.leftWing = wing;
+    else root.userData.rightWing = wing;
+  }
+  visual.add(
+    createMesh(
+      createCurveSolidGeometry({
+        points: [[0, 0.53, -0.28], [0, 0.39, -0.4], [0, 0.22, -0.48]],
+        widths: [0.15, 0.13, 0.025],
+        depths: [0.06, 0.045, 0.012],
+        segments: 7,
+        radialSegments: 6,
+        tipPinch: 0.25,
+        name: 'Pingu尾羽拓扑'
+      }),
+      materials.black,
+      'Pingu层叠尾羽'
+    )
+  );
+}
+
+function addLogisticsUniform(visual, materials) {
+  const cap = new THREE.Group();
+  cap.name = '红肠组组长帽独立资产';
+  cap.add(
+    createMesh(
+      createProfiledSurfaceGeometry(
+        [
+          { y: 1.47, radiusX: 0.23, radiusZ: 0.2 },
+          { y: 1.54, radiusX: 0.31, radiusZ: 0.25 },
+          { y: 1.65, radiusX: 0.25, radiusZ: 0.21 },
+          { y: 1.7, radiusX: 0.12, radiusZ: 0.11 }
+        ],
+        { radialSegments: 20, name: '红肠组软帽冠拓扑' }
+      ),
+      materials.red,
+      '红肠组软帽冠'
+    ),
+    createMesh(
+      createExtrudedPanelGeometry(
+        [
+          [-0.2, -0.045],
+          [-0.13, 0.025],
+          [0.13, 0.025],
+          [0.27, -0.03],
+          [0.14, -0.075],
+          [-0.1, -0.075]
+        ],
+        { depth: 0.075, bevel: 0.012, name: '组长帽弧形帽檐拓扑' }
+      ),
+      materials.red,
+      '组长帽弧形帽檐',
+      [0, 1.5, 0.22],
+      [-0.08, 0, 0]
+    )
+  );
+  const badge = createMesh(
+    createExtrudedPanelGeometry(
+      [[0, -0.06], [-0.055, -0.015], [-0.04, 0.055], [0, 0.075], [0.04, 0.055], [0.055, -0.015]],
+      { depth: 0.024, bevel: 0.008, name: '红肠组长徽章拓扑' }
+    ),
+    SACRED_MATERIALS.polishedGold,
+    '红肠组长徽章',
+    [0, 1.585, 0.262]
+  );
+  cap.add(badge);
+  visual.add(cap);
+
+  const sash = createMesh(
+    createGarmentPipingGeometry(
+      [
+        [-0.29, 0.96, 0.26],
+        [-0.12, 0.77, 0.37],
+        [0.08, 0.58, 0.39],
+        [0.27, 0.42, 0.28]
+      ],
+      0.045
+    ),
+    createCharacterMaterial(0x6d2430, { roughness: 0.66 }),
+    'Pingu红肠补给斜背带'
+  );
+  visual.add(sash);
+
+  for (let index = 0; index < 5; index += 1) {
+    const x = -0.18 + index * 0.09;
+    const y = 0.63 + index * 0.012;
+    const sausage = createMesh(
+      createCurveSolidGeometry({
+        points: [[x, y + 0.09, 0.39], [x + 0.012, y, 0.415], [x, y - 0.09, 0.39]],
+        widths: [0.036, 0.043, 0.036],
+        depths: [0.027, 0.032, 0.027],
+        segments: 6,
+        radialSegments: 7,
+        tipPinch: 0.05,
+        name: `备案红肠弯曲拓扑-${index + 1}`
+      }),
+      materials.red,
+      `备案红肠-${index + 1}`,
+      [0, 0, 0],
+      [0, 0, -0.48]
+    );
+    const clasp = createMesh(
+      createProfiledSurfaceGeometry(
+        [
+          { y: -0.012, radiusX: 0.008, radiusZ: 0.008 },
+          { y: 0, radiusX: 0.027, radiusZ: 0.018 },
+          { y: 0.012, radiusX: 0.008, radiusZ: 0.008 }
+        ],
+        { radialSegments: 7, name: `红肠备案扣拓扑-${index + 1}` }
+      ),
+      SACRED_MATERIALS.polishedGold,
+      `红肠备案扣-${index + 1}`,
+      [x, y + 0.11, 0.41]
+    );
+    visual.add(sausage, clasp);
+  }
+
+  const pocket = createMesh(
+    createExtrudedPanelGeometry(
+      [[-0.12, -0.1], [-0.13, 0.08], [0, 0.14], [0.13, 0.08], [0.12, -0.1]],
+      { depth: 0.04, bevel: 0.01, name: '补给清单胸袋拓扑' }
+    ),
+    materials.red,
+    '补给清单胸袋',
+    [0, 0.78, 0.38]
+  );
+  visual.add(pocket);
+}
 
 export function createPingu() {
   const root = new THREE.Group();
@@ -10,137 +342,38 @@ export function createPingu() {
   visual.name = 'Pingu-视觉根';
   root.add(visual);
 
-  const black = createCharacterMaterial(0x152332, { roughness: 0.56 });
-  const white = createCharacterMaterial(0xf3efe2, { roughness: 0.72 });
-  const orange = createCharacterMaterial(0xe7973d, { roughness: 0.54 });
-  const eye = createCharacterMaterial(0x071118, { roughness: 0.22 });
-  const red = SACRED_MATERIALS.redSausage;
+  const materials = {
+    black: createCharacterMaterial(0x152332, { roughness: 0.68 }),
+    white: createCharacterMaterial(0xf3efe2, { roughness: 0.75 }),
+    orange: createCharacterMaterial(0xe7973d, { roughness: 0.58 }),
+    eye: createCharacterMaterial(0x071118, { roughness: 0.18 }),
+    catchlight: createCharacterMaterial(0xffffff, {
+      roughness: 0.1,
+      emissive: 0xffffff,
+      emissiveIntensity: 0.12
+    }),
+    red: SACRED_MATERIALS.redSausage
+  };
 
-  const body = createMesh(
-    new THREE.SphereGeometry(0.48, 24, 18),
-    black,
-    'Pingu 身体',
-    [0, 0.62, 0],
-    [0, 0, 0],
-    [0.82, 1.25, 0.76]
-  );
-  const belly = createMesh(
-    new THREE.SphereGeometry(0.39, 22, 16),
-    white,
-    'Pingu 白肚皮',
-    [0, 0.61, 0.25],
-    [0, 0, 0],
-    [0.7, 1.05, 0.35]
-  );
-  const head = createMesh(
-    new THREE.SphereGeometry(0.37, 24, 18),
-    black,
-    'Pingu 头部',
-    [0, 1.24, 0],
-    [0, 0, 0],
-    [1, 0.92, 0.95]
-  );
-  const facePatch = createMesh(
-    new THREE.SphereGeometry(0.3, 20, 14),
-    white,
-    'Pingu 脸部白斑',
-    [0, 1.22, 0.22],
-    [0, 0, 0],
-    [0.8, 0.69, 0.3]
-  );
-  const beak = createMesh(
-    new THREE.ConeGeometry(0.14, 0.27, 12),
-    orange,
-    'Pingu 鸟喙',
-    [0, 1.15, 0.43],
-    [Math.PI / 2, 0, 0],
-    [1.2, 1, 0.72]
-  );
-
-  for (const side of [-1, 1]) {
-    const eyeMesh = createMesh(
-      new THREE.SphereGeometry(0.052, 12, 8),
-      eye,
-      side < 0 ? 'Pingu 左眼' : 'Pingu 右眼',
-      [side * 0.105, 1.3, 0.3],
-      [0, 0, 0],
-      [0.88, 1.1, 0.56]
-    );
-    const catchlight = createMesh(
-      new THREE.SphereGeometry(0.013, 7, 5),
-      white,
-      side < 0 ? 'Pingu 左眼高光' : 'Pingu 右眼高光',
-      [side * 0.115, 1.315, 0.335]
-    );
-    const wing = new THREE.Group();
-    wing.name = side < 0 ? 'Pingu 左翅骨架' : 'Pingu 右翅骨架';
-    wing.position.set(side * 0.38, 0.82, 0);
-    wing.add(
-      createMesh(
-        new THREE.CapsuleGeometry(0.12, 0.42, 5, 10),
-        black,
-        side < 0 ? 'Pingu 左翅' : 'Pingu 右翅',
-        [side * 0.03, -0.12, 0],
-        [0, 0, side * 0.25]
-      )
-    );
-    const foot = createMesh(
-      new THREE.SphereGeometry(0.19, 14, 9),
-      orange,
-      side < 0 ? 'Pingu 左脚' : 'Pingu 右脚',
-      [side * 0.2, 0.08, 0.1],
-      [0, 0, 0],
-      [1.2, 0.38, 1.45]
-    );
-    visual.add(eyeMesh, catchlight, wing, foot);
-    if (side < 0) root.userData.leftWing = wing;
-    else root.userData.rightWing = wing;
-  }
-
-  const cap = new THREE.Group();
-  cap.name = '红肠组组长帽';
-  cap.position.set(0, 1.52, 0);
-  cap.add(
-    createMesh(
-      new THREE.CylinderGeometry(0.26, 0.31, 0.16, 18),
-      red,
-      '组长帽冠',
-      [0, 0.02, 0]
-    ),
-    createMesh(
-      new THREE.BoxGeometry(0.33, 0.045, 0.2),
-      red,
-      '组长帽檐',
-      [0, -0.04, 0.2]
-    ),
-    createMesh(
-      new THREE.CylinderGeometry(0.06, 0.06, 0.018, 16),
-      SACRED_MATERIALS.polishedGold,
-      '红肠组徽章',
-      [0, 0.03, 0.292],
-      [Math.PI / 2, 0, 0]
-    )
-  );
-
-  const sausageBandolier = new THREE.Group();
-  sausageBandolier.name = 'Pingu 红肠战斗补给带';
-  for (let index = 0; index < 5; index += 1) {
-    const sausage = createMesh(
-      new THREE.CapsuleGeometry(0.045, 0.16, 4, 8),
-      red,
-      `备案红肠-${index + 1}`,
-      [-0.2 + index * 0.1, 0.67 + index * 0.025, 0.38],
-      [0, 0, -0.5]
-    );
-    sausageBandolier.add(sausage);
-  }
-  visual.add(body, belly, head, facePatch, beak, cap, sausageBandolier);
+  createPinguBody(visual, materials);
+  addPinguFace(visual, materials);
+  addPinguLimbs(root, visual, materials);
+  addLogisticsUniform(visual, materials);
 
   root.userData.animate = ({ time = 0, alert = false } = {}) => {
     visual.position.y = Math.sin(time * 2.3) * 0.018;
     visual.rotation.z = Math.sin(time * 1.4) * 0.025;
-    root.userData.leftWing.rotation.z = -0.18 + Math.sin(time * (alert ? 7 : 2)) * (alert ? 0.45 : 0.08);
-    root.userData.rightWing.rotation.z = 0.18 - Math.sin(time * (alert ? 7 : 2)) * (alert ? 0.45 : 0.08);
+    root.userData.leftWing.rotation.z =
+      -0.18 + Math.sin(time * (alert ? 7 : 2)) * (alert ? 0.45 : 0.08);
+    root.userData.rightWing.rotation.z =
+      0.18 - Math.sin(time * (alert ? 7 : 2)) * (alert ? 0.45 : 0.08);
   };
+  root.userData.characterQuality = Object.freeze({
+    silhouette: '梨形企鹅羽体、软帽、补给斜背带、三趾蹼足',
+    faceLayers: 5,
+    featherSections: 9,
+    authoredGeometry: true,
+    originality: '原创红肠物流企鹅，不复刻既有影视角色造型'
+  });
   return root;
 }

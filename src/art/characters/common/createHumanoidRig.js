@@ -4,6 +4,19 @@ import {
   SACRED_MATERIALS,
   createCharacterMaterial
 } from '../../materials/sacredMaterials.js';
+import {
+  createBootGeometry,
+  createForearmGeometry,
+  createHandGeometry,
+  createNeckGeometry,
+  createShinGeometry,
+  createStylizedHeadGeometry,
+  createThighGeometry,
+  createTorsoGeometry,
+  createUpperArmGeometry
+} from './modeling/anatomyGeometry.js';
+import { createCuffGeometry } from './modeling/garmentGeometry.js';
+import { createCurveSolidGeometry } from './modeling/organicGeometry.js';
 
 export function createHumanoidRig({
   name,
@@ -12,7 +25,10 @@ export function createHumanoidRig({
   primary = 0xf1ead8,
   secondary = 0x203d63,
   boot = 0x202635,
-  build = 1
+  build = 1,
+  feminine = false,
+  detailedHands = true,
+  headScale = 0.74
 }) {
   const root = new THREE.Group();
   root.name = name;
@@ -20,10 +36,13 @@ export function createHumanoidRig({
   visual.name = `${name}-视觉根`;
   root.add(createContactShadow(0.42 * build, SACRED_MATERIALS.contactShadow), visual);
 
-  const skinMaterial = createCharacterMaterial(skin);
-  const primaryMaterial = createCharacterMaterial(primary);
-  const secondaryMaterial = createCharacterMaterial(secondary);
-  const bootMaterial = createCharacterMaterial(boot);
+  const skinMaterial = createCharacterMaterial(skin, { roughness: 0.7 });
+  const primaryMaterial = createCharacterMaterial(primary, { roughness: 0.76 });
+  const secondaryMaterial = createCharacterMaterial(secondary, { roughness: 0.64 });
+  const bootMaterial = createCharacterMaterial(boot, {
+    roughness: 0.38,
+    metalness: 0.05
+  });
 
   const scale = height / 1.78;
   visual.scale.setScalar(scale);
@@ -32,92 +51,150 @@ export function createHumanoidRig({
   hips.name = '骨架-胯';
   hips.position.y = 0.76;
   const torso = createMesh(
-    new THREE.CapsuleGeometry(0.26 * build, 0.54, 5, 12),
+    createTorsoGeometry(build, feminine),
     primaryMaterial,
-    '身体',
-    [0, 0.36, 0],
-    [0, 0, 0],
-    [1, 1, 0.72]
+    '连续剪裁身体',
+    [0, 0.08, 0]
   );
   const waist = createMesh(
-    new THREE.CylinderGeometry(0.25 * build, 0.29 * build, 0.16, 16),
+    createCuffGeometry({
+      radiusX: 0.255 * build,
+      radiusZ: 0.18 * build,
+      height: 0.15,
+      flare: 0.012,
+      name: '贴合腰封拓扑'
+    }),
     secondaryMaterial,
-    '腰带',
+    '立体贴合腰封',
     [0, 0.03, 0]
   );
   hips.add(torso, waist);
   visual.add(hips);
 
   function createLeg(side) {
+    const label = side < 0 ? '左' : '右';
     const upper = new THREE.Group();
-    upper.name = `骨架-${side < 0 ? '左' : '右'}腿`;
+    upper.name = `骨架-${label}腿`;
     upper.position.set(side * 0.16 * build, 0.75, 0);
     const thigh = createMesh(
-      new THREE.CapsuleGeometry(0.105 * build, 0.38, 4, 10),
+      createThighGeometry(build),
       secondaryMaterial,
-      side < 0 ? '左大腿' : '右大腿',
-      [0, -0.23, 0]
+      `${label}大腿剪裁拓扑`
     );
     const lower = new THREE.Group();
-    lower.name = `骨架-${side < 0 ? '左' : '右'}小腿`;
+    lower.name = `骨架-${label}小腿`;
     lower.position.y = -0.46;
     const shin = createMesh(
-      new THREE.CapsuleGeometry(0.09 * build, 0.31, 4, 10),
+      createShinGeometry(build),
       primaryMaterial,
-      side < 0 ? '左小腿' : '右小腿',
-      [0, -0.19, 0]
+      `${label}小腿连续拓扑`
     );
     const shoe = createMesh(
-      new THREE.CapsuleGeometry(0.105 * build, 0.17, 4, 10),
+      createBootGeometry(build),
       bootMaterial,
-      side < 0 ? '左靴' : '右靴',
-      [0, -0.42, 0.06],
-      [Math.PI / 2, 0, 0],
-      [1, 1, 1.35]
+      `${label}完整鞋楦靴`,
+      [0, -0.12, 0]
     );
     lower.add(shin, shoe);
     upper.add(thigh, lower);
     visual.add(upper);
-    return { upper, lower };
+    return { upper, lower, thigh, shin, shoe };
   }
 
   function createArm(side) {
+    const label = side < 0 ? '左' : '右';
     const upper = new THREE.Group();
-    upper.name = `骨架-${side < 0 ? '左' : '右'}臂`;
-    upper.position.set(side * 0.34 * build, 1.33, 0);
-    const shoulder = createMesh(
-      new THREE.SphereGeometry(0.14 * build, 12, 9),
-      secondaryMaterial,
-      side < 0 ? '左肩' : '右肩',
-      [0, 0, 0]
-    );
+    upper.name = `骨架-${label}臂`;
+    upper.position.set(side * (feminine ? 0.29 : 0.315) * build, 1.33, 0);
     const upperMesh = createMesh(
-      new THREE.CapsuleGeometry(0.09 * build, 0.27, 4, 9),
+      createUpperArmGeometry(build, true),
       primaryMaterial,
-      side < 0 ? '左上臂' : '右上臂',
-      [0, -0.21, 0]
+      `${label}肩峰上臂连续拓扑`
+    );
+    const upperSeam = createMesh(
+      createCurveSolidGeometry({
+        points: [
+          [side * 0.035, 0.01, 0.116 * build],
+          [side * 0.028, -0.19, 0.102 * build],
+          [side * 0.02, -0.4, 0.078 * build]
+        ],
+        widths: 0.0055 * build,
+        depths: 0.0035 * build,
+        segments: 7,
+        radialSegments: 4,
+        name: `${label}上袖立体缝线拓扑`
+      }),
+      secondaryMaterial,
+      `${label}上袖立体缝线`
+    );
+    const shoulderGuard = createMesh(
+      createCuffGeometry({
+        radiusX: 0.119 * build,
+        radiusZ: 0.115 * build,
+        height: 0.065,
+        flare: 0.007,
+        name: `${label}肩袖结构拓扑`
+      }),
+      secondaryMaterial,
+      `${label}结构化肩袖`,
+      [0, 0.005, 0]
     );
     const lower = new THREE.Group();
-    lower.name = `骨架-${side < 0 ? '左' : '右'}前臂`;
+    lower.name = `骨架-${label}前臂`;
     lower.position.y = -0.42;
     const lowerMesh = createMesh(
-      new THREE.CapsuleGeometry(0.077 * build, 0.25, 4, 9),
+      createForearmGeometry(build, true),
       primaryMaterial,
-      side < 0 ? '左前臂' : '右前臂',
-      [0, -0.18, 0]
+      `${label}肘腕连续拓扑`
+    );
+    const lowerSeam = createMesh(
+      createCurveSolidGeometry({
+        points: [
+          [side * 0.018, 0.02, 0.087 * build],
+          [side * 0.014, -0.17, 0.076 * build],
+          [side * 0.008, -0.34, 0.06 * build]
+        ],
+        widths: 0.0048 * build,
+        depths: 0.0032 * build,
+        segments: 6,
+        radialSegments: 4,
+        name: `${label}前臂立体缝线拓扑`
+      }),
+      secondaryMaterial,
+      `${label}前臂立体缝线`
+    );
+    const cuff = createMesh(
+      createCuffGeometry({
+        radiusX: 0.084 * build,
+        radiusZ: 0.078 * build,
+        height: 0.105,
+        flare: 0.018,
+        name: `${label}袖口拓扑`
+      }),
+      secondaryMaterial,
+      `${label}双层袖口`,
+      [0, -0.335, 0]
     );
     const hand = createMesh(
-      new THREE.SphereGeometry(0.095 * build, 12, 9),
+      createHandGeometry(side, build, detailedHands),
       skinMaterial,
-      side < 0 ? '左手' : '右手',
-      [0, -0.4, 0],
-      [0, 0, 0],
-      [0.82, 1.05, 0.78]
+      `${label}带手指手部`,
+      [0, -0.37, 0]
     );
-    lower.add(lowerMesh, hand);
-    upper.add(shoulder, upperMesh, lower);
+    lower.add(lowerMesh, lowerSeam, cuff, hand);
+    upper.add(upperMesh, upperSeam, shoulderGuard, lower);
     visual.add(upper);
-    return { upper, lower, hand };
+    return {
+      upper,
+      lower,
+      hand,
+      upperMesh,
+      lowerMesh,
+      upperSeam,
+      lowerSeam,
+      cuff,
+      shoulderGuard
+    };
   }
 
   const leftLeg = createLeg(-1);
@@ -126,21 +203,19 @@ export function createHumanoidRig({
   const rightArm = createArm(1);
 
   const neck = createMesh(
-    new THREE.CylinderGeometry(0.105, 0.12, 0.18, 12),
+    createNeckGeometry(build),
     skinMaterial,
-    '脖颈',
-    [0, 1.49, 0]
+    '颈部肌肉过渡',
+    [0, 1.5, 0]
   );
   const headPivot = new THREE.Group();
   headPivot.name = '骨架-头';
   headPivot.position.y = 1.62;
+  headPivot.scale.setScalar(headScale);
   const head = createMesh(
-    new THREE.SphereGeometry(0.245 * build, 20, 16),
+    createStylizedHeadGeometry(build),
     skinMaterial,
-    '头部',
-    [0, 0, 0],
-    [0, 0, 0],
-    [0.92, 1.08, 0.9]
+    '雕刻式动漫头部'
   );
   headPivot.add(head);
   visual.add(neck, headPivot);
@@ -149,6 +224,8 @@ export function createHumanoidRig({
     visual,
     hips,
     torso,
+    waist,
+    head,
     headPivot,
     leftLeg,
     rightLeg,
