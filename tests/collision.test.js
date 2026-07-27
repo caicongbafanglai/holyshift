@@ -190,6 +190,56 @@ describe('plaza collision and anti-softlock invariants', () => {
     expect(player.flightSecondsThisFrame).toBeCloseTo(0.05);
   });
 
+  it('enters a controlled downward glide without spending powered-flight time', () => {
+    const player = new Player();
+    const navigation = {
+      ...flatNavigation(),
+      flightBounds: {
+        minX: -20,
+        maxX: 20,
+        minY: 0,
+        maxY: 12,
+        minZ: -20,
+        maxZ: 20
+      }
+    };
+    const input = heldInput('ctrl', 'shift', 'w');
+    player.position.set(0, 4, 4);
+    player.update(
+      0.1,
+      input,
+      {
+        yaw: Math.PI,
+        forward: new THREE.Vector3(0, 0.5, -Math.sqrt(0.75)),
+        right: new THREE.Vector3(1, 0, 0)
+      },
+      navigation,
+      10
+    );
+    const flightPosition = player.position.clone();
+
+    player.update(
+      0.25,
+      input,
+      {
+        yaw: Math.PI,
+        forward: new THREE.Vector3(0, -0.6, -0.8),
+        right: new THREE.Vector3(1, 0, 0)
+      },
+      navigation,
+      0
+    );
+
+    expect(player.isFlying).toBe(false);
+    expect(player.isGliding).toBe(true);
+    expect(player.verticalStateLabel).toBe('GLIDING');
+    expect(player.flightSecondsThisFrame).toBe(0);
+    expect(player.glideSecondsThisFrame).toBeCloseTo(0.25);
+    expect(player.position.y).toBeLessThan(flightPosition.y);
+    expect(player.position.y).toBeGreaterThan(flightPosition.y - 0.7);
+    expect(player.position.z).toBeLessThan(flightPosition.z - 1);
+  });
+
   it('provides a collision-free stepped route into the healing fountain water', () => {
     const world = new MushiTownWorld();
     const player = world.player;
@@ -242,6 +292,51 @@ describe('plaza collision and anti-softlock invariants', () => {
         idleInput,
         Math.PI,
         world.scene.userData
+      );
+    }
+
+    expect(player.verticalStateLabel).toBe('GROUND');
+    expect(player.position.y).toBe(0);
+    expect(world.isPositionValid(player.position)).toBe(true);
+    expect(
+      collidesAt(
+        player.position,
+        world.baseColliders,
+        player.collisionRadius,
+        player.collisionHeight
+      )
+    ).toBe(false);
+  });
+
+  it('glides through a low NPC proxy and selects a collision-free landing beside it', () => {
+    const world = new MushiTownWorld();
+    const player = world.player;
+    const climbFrame = {
+      yaw: 0,
+      forward: new THREE.Vector3(0, 0.5, Math.sqrt(0.75)),
+      right: new THREE.Vector3(-1, 0, 0)
+    };
+    const glideFrame = {
+      yaw: 0,
+      forward: new THREE.Vector3(0, -0.6, 0.8),
+      right: new THREE.Vector3(-1, 0, 0)
+    };
+    player.position.set(-31, 3, 37);
+    player.update(
+      0.01,
+      heldInput('ctrl', 'shift', 'w'),
+      climbFrame,
+      world.scene.userData,
+      1
+    );
+
+    for (let frame = 0; frame < 60 && !player.grounded; frame += 1) {
+      player.update(
+        0.05,
+        heldInput('ctrl', 'shift', 'w', 's'),
+        glideFrame,
+        world.scene.userData,
+        0
       );
     }
 

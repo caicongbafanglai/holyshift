@@ -80,6 +80,20 @@ test('completes the real-time first chapter and persists its world state', async
       ),
     { timeout: 8000 }
   ).toBeLessThan(hpBefore);
+  await page.evaluate(() => window.__holyShiftTest.grantShift(100));
+  await page.keyboard.press('KeyQ');
+  await expect.poll(
+    () =>
+      page.evaluate(
+        () => window.__holyShiftTest.snapshot().enemies['wisp-a'].hp
+      ),
+    { timeout: 8000 }
+  ).toBe(0);
+  const shiftAfterCast = await page.evaluate(
+    () => window.__holyShiftTest.snapshot().player.shift
+  );
+  expect(shiftAfterCast).toBeLessThan(100);
+  expect(shiftAfterCast).toBeGreaterThanOrEqual(60);
   await testInfo.attach('real-time-combat.json', {
     body: JSON.stringify(
       await page.evaluate(() => window.__holyShiftTest.snapshot()),

@@ -57,8 +57,20 @@ describe('Holy Shift world bible v0.3 content', () => {
       PLAYER_COMBAT.maxStamina
     );
     expect(PLAYER_COMBAT.lightRange).toBeGreaterThan(2);
+    expect(PLAYER_COMBAT.shiftRange).toBeGreaterThanOrEqual(16);
+    expect(PLAYER_COMBAT.shiftDamage).toBeGreaterThan(
+      Math.max(...Object.values(ENEMIES)
+        .filter((enemy) => !enemy.boss)
+        .map((enemy) => enemy.maxHp))
+    );
+    expect(PLAYER_COMBAT.shiftKeyRecovery).toBeGreaterThan(0);
     expect(PLAYER_COMBAT.flightStaminaPerSecond).toBeGreaterThan(0);
+    expect(PLAYER_COMBAT.flightStaminaPerSecond).toBeLessThan(
+      PLAYER_COMBAT.staminaRecoveryPerSecond
+    );
+    expect(PLAYER_COMBAT.glideStaminaRecoveryPerSecond).toBeGreaterThan(0);
     expect(PLAYER_COMBAT.fountainHealPerSecond).toBeGreaterThan(0);
+    expect(PLAYER_COMBAT.fountainShiftRecoveryPerSecond).toBeGreaterThan(0);
   });
 
   it('uses the revised old pastor catchphrase without retaining the retired ones', () => {

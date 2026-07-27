@@ -40,19 +40,30 @@ export class ActionCombat {
     this.attackCooldown = Math.max(0, this.attackCooldown - delta);
     this.shiftCooldown = Math.max(0, this.shiftCooldown - delta);
     this.comboWindow = Math.max(0, this.comboWindow - delta);
-    if (
-      !this.world.player.isFlying &&
-      !this.world.player.flightRequestedThisFrame
-    ) {
+    const staminaRecoveryRate = this.world.player.isGliding
+      ? PLAYER_COMBAT.glideStaminaRecoveryPerSecond
+      : !this.world.player.isFlying &&
+          !this.world.player.flightRequestedThisFrame
+        ? PLAYER_COMBAT.staminaRecoveryPerSecond
+        : 0;
+    if (staminaRecoveryRate > 0) {
       this.playerState.stamina = recoverResource(
         this.playerState.stamina,
         PLAYER_COMBAT.maxStamina,
-        PLAYER_COMBAT.staminaRecoveryPerSecond,
+        staminaRecoveryRate,
         delta
       );
     }
 
     if (enabled) {
+      if (input.consumePressed('shift')) {
+        this.playerState.shift = recoverResource(
+          this.playerState.shift,
+          PLAYER_COMBAT.maxShift,
+          PLAYER_COMBAT.shiftKeyRecovery,
+          1
+        );
+      }
       if (
         (input.consumePressed('attack') || input.consumePressed('j')) &&
         this.attackCooldown <= 0

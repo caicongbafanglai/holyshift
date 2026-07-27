@@ -65,7 +65,7 @@ export class GameUI {
 
       <aside class="combat-keys" aria-label="战斗操作">
         <div><kbd>左键 / J</kbd><span><b>手杖连击</b><small>三段场景攻击</small></span></div>
-        <div><kbd>右键 / Q</kbd><span><b>Holy Shift</b><small>消耗 40 SHIFT</small></span></div>
+        <div><kbd>右键 / Q</kbd><span><b>Holy Shift</b><small>大范围高伤 · 耗 40 SHIFT</small></span></div>
         <div><kbd>Ctrl</kbd><span><b>闪避</b><small>单按 · 消耗 24 耐力</small></span></div>
       </aside>
 
@@ -76,9 +76,9 @@ export class GameUI {
         <div class="key-guide__body" data-ui="guide-body">
           <div><kbd>W A S D</kbd><span>移动</span></div>
           <div><kbd>鼠标</kbd><span>观察 / 点击锁定</span></div>
-          <div><kbd>Shift</kbd><span>疾跑</span></div>
+          <div><kbd>Shift</kbd><span>疾跑 · 点按回 SHIFT</span></div>
           <div><kbd>Space</kbd><span>跳跃</span></div>
-          <div class="key-guide__wide"><kbd>Ctrl + Shift + W A S D</kbd><span>视向飞行 · 持续耗耐力</span></div>
+          <div class="key-guide__wide"><kbd>Ctrl + Shift + W A S D</kbd><span>视向飞行 · 俯视滑翔回耐</span></div>
           <div><kbd>E</kbd><span>调查 / 交谈</span></div>
           <div><kbd>V</kbd><span>第一 / 第三人称</span></div>
           <div><kbd>R</kbd><span>安全点复位</span></div>

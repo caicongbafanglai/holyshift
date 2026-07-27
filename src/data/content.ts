@@ -40,14 +40,17 @@ export const PLAYER_COMBAT = {
   lightRange: 3.15,
   lightArcDegrees: 118,
   lightCooldown: [0.31, 0.34, 0.46],
-  shiftDamage: 42,
-  shiftRange: 6.5,
+  shiftDamage: 105,
+  shiftRange: 16.5,
   shiftCost: 40,
   shiftCooldown: 2.8,
+  shiftKeyRecovery: 8,
   dodgeStaminaCost: 24,
   staminaRecoveryPerSecond: 22,
-  flightStaminaPerSecond: 18,
-  fountainHealPerSecond: 30
+  flightStaminaPerSecond: 10,
+  glideStaminaRecoveryPerSecond: 18,
+  fountainHealPerSecond: 30,
+  fountainShiftRecoveryPerSecond: 28
 } as const;
 
 export const ENEMIES: Record<EnemyId, EnemyDefinition> = {

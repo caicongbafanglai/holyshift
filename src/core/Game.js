@@ -171,6 +171,12 @@ export class Game {
           );
           return this.save.player.hp;
         },
+        setCameraPitch: (radians = 0) => {
+          const pitch = Number(radians);
+          if (!Number.isFinite(pitch)) return false;
+          this.camera.pitch = Math.max(-1.2, Math.min(1.2, pitch));
+          return this.camera.pitch;
+        },
         teleportIntoFountain: () => {
           const ground = findWalkableGround(
             5,
@@ -246,7 +252,9 @@ export class Game {
           renderer: this.renderer.stats,
           traversal: {
             flying: this.world.player.isFlying,
+            gliding: this.world.player.isGliding,
             flightRequested: this.world.player.flightRequestedThisFrame,
+            glideRequested: this.world.player.glideRequestedThisFrame,
             inFountainWater: this.world.isPlayerInFountainWater()
           }
         })
@@ -700,13 +708,24 @@ export class Game {
     }
 
     const inHealingWater = this.world.isPlayerInFountainWater();
-    if (inHealingWater && this.save.player.hp < PLAYER_COMBAT.maxHp) {
-      this.save.player.hp = Math.min(
-        PLAYER_COMBAT.maxHp,
-        this.save.player.hp + PLAYER_COMBAT.fountainHealPerSecond * delta
-      );
-      if (!this.wasInHealingWater) {
-        this.ui.showToast('圣水正在恢复生命。', 1800);
+    if (inHealingWater) {
+      const needsHealing = this.save.player.hp < PLAYER_COMBAT.maxHp;
+      const needsShift = this.save.player.shift < PLAYER_COMBAT.maxShift;
+      if (needsHealing) {
+        this.save.player.hp = Math.min(
+          PLAYER_COMBAT.maxHp,
+          this.save.player.hp + PLAYER_COMBAT.fountainHealPerSecond * delta
+        );
+      }
+      if (needsShift) {
+        this.save.player.shift = Math.min(
+          PLAYER_COMBAT.maxShift,
+          this.save.player.shift +
+            PLAYER_COMBAT.fountainShiftRecoveryPerSecond * delta
+        );
+      }
+      if (!this.wasInHealingWater && (needsHealing || needsShift)) {
+        this.ui.showToast('圣水正在恢复生命与 SHIFT。', 1800);
         this.audio.play('holy');
       }
     }
