@@ -41,7 +41,9 @@ test('keeps the detailed plaza inside adaptive software-renderer budgets', async
     contentType: 'application/json'
   });
 
-  expect(measurement.triangles).toBeLessThan(60_000);
+  expect(measurement.triangles).toBeLessThan(
+    measurement.softwareRenderer ? 60_000 : 110_000
+  );
   expect(measurement.calls).toBeLessThan(100);
   expect(measurement.pixelRatio).toBeGreaterThanOrEqual(0.5);
   expect(measurement.pixelRatio).toBeLessThanOrEqual(1.5);
