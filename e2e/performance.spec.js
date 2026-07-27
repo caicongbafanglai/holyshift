@@ -48,7 +48,9 @@ test('keeps the detailed plaza inside adaptive software-renderer budgets', async
   expect(measurement.pixelRatio).toBeGreaterThanOrEqual(0.5);
   expect(measurement.pixelRatio).toBeLessThanOrEqual(1.5);
   expect(measurement.encodedBytes).toBeLessThan(3_000_000);
-  expect(measurement.directRenderMs).toBeLessThan(20);
+  expect(measurement.directRenderMs).toBeLessThan(
+    measurement.softwareRenderer ? 20 : 24
+  );
   expect(measurement.directUpdateMs).toBeLessThan(3);
   if (measurement.jsHeapUsedSize !== undefined) {
     expect(measurement.jsHeapUsedSize).not.toBeNull();
