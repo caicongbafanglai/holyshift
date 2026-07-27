@@ -8,6 +8,7 @@ import { createOldPastor } from '../src/art/characters/oldPastor/createOldPastor
 import { createPastorSenior } from '../src/art/characters/pastorSenior/createPastorSenior.js';
 import { createPingu } from '../src/art/characters/pingu/createPingu.js';
 import { batchRigidCharacter } from '../src/art/modeling/batchMeshes.js';
+import { createSausageCart } from '../src/art/props/createSausageCart.js';
 
 const characterCases = [
   ['老牧师', createOldPastor, 8_000, 12_000],
@@ -182,5 +183,30 @@ describe('authored character modeling quality gates', () => {
     const beakBounds = new THREE.Box3().setFromObject(beak);
     expect(mouthBounds.max.z).toBeGreaterThan(beakBounds.max.z);
     expect(mouthBounds.getSize(new THREE.Vector3()).x).toBeGreaterThan(0.18);
+    for (const part of [mouth, beak]) {
+      expect(part.material.transparent).toBe(false);
+      expect(part.material.opacity).toBe(1);
+      expect(part.material.depthWrite).toBe(true);
+    }
+    expect(beakBounds.getSize(new THREE.Vector3()).z).toBeLessThan(0.18);
+  });
+
+  it('models all three foods on Pingu stall with red sausages most plentiful', () => {
+    const cart = createSausageCart();
+    expect(cart.userData.foodDisplay).toEqual({
+      redSausageCount: 12,
+      forgetfulBeefNoodlesCount: 1,
+      genghisChickenCount: 1
+    });
+    expect(cart.getObjectByName('忘情牛肉面独立食品模型')).toBeTruthy();
+    expect(cart.getObjectByName('忘情牛肉面浓汤')).toBeTruthy();
+    expect(cart.getObjectByName('忘情牛肉面牛肉块-4')).toBeTruthy();
+    expect(cart.getObjectByName('成吉思鸡独立食品模型')).toBeTruthy();
+    expect(cart.getObjectByName('成吉思鸡金黄黄油酱汁')).toBeTruthy();
+    expect(cart.getObjectByName('成吉思鸡金黄块-6')).toBeTruthy();
+    const sausages = cart.children.filter((child) =>
+      child.name.startsWith('神圣战斗红肠-')
+    );
+    expect(sausages).toHaveLength(12);
   });
 });

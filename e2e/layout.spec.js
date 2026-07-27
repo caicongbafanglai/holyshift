@@ -72,6 +72,7 @@ test('the permanent control guide leaves critical view and HUD regions unobstruc
     .innerText();
   expect(visibleGuideText).toContain('W A S D');
   expect(visibleGuideText).toContain('调查 / 交谈');
+  expect(visibleGuideText).toContain('背包 / 使用食品');
   expect(visibleGuideText).toContain('第一 / 第三人称');
   expect(visibleGuideText).toContain('视向飞行');
   expect(visibleGuideText).toContain('暂停 / 设置');

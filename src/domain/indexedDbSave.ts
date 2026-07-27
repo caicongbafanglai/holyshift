@@ -98,6 +98,10 @@ function cloneSave(save: GameSave): GameSave {
   return {
     ...save,
     player: { ...save.player },
+    economy: {
+      ...save.economy,
+      inventory: { ...save.economy.inventory }
+    },
     defeated: { ...save.defeated },
     flags: { ...save.flags },
     checkpoint: null,

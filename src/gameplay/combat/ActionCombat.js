@@ -3,6 +3,10 @@ import {
   isTargetInsideAttackArc,
   recoverResource
 } from '../../domain/combat.ts';
+import {
+  expireStaminaBoostIfDepleted,
+  getStaminaMaximum
+} from '../../domain/economy.ts';
 import { canRestoreAtFountain } from '../quests/ChapterOne.js';
 import { CombatEffects } from './CombatEffects.js';
 
@@ -40,6 +44,8 @@ export class ActionCombat {
     this.attackCooldown = Math.max(0, this.attackCooldown - delta);
     this.shiftCooldown = Math.max(0, this.shiftCooldown - delta);
     this.comboWindow = Math.max(0, this.comboWindow - delta);
+    const expiredFood = expireStaminaBoostIfDepleted(this.playerState);
+    if (expiredFood) this.callbacks.onStaminaBoostExpired?.(expiredFood);
     const staminaRecoveryRate = this.world.player.isGliding
       ? PLAYER_COMBAT.glideStaminaRecoveryPerSecond
       : !this.world.player.isFlying &&
@@ -49,7 +55,7 @@ export class ActionCombat {
     if (staminaRecoveryRate > 0) {
       this.playerState.stamina = recoverResource(
         this.playerState.stamina,
-        PLAYER_COMBAT.maxStamina,
+        getStaminaMaximum(this.playerState),
         staminaRecoveryRate,
         delta
       );
@@ -197,6 +203,8 @@ export class ActionCombat {
     }
     if (!this.world.player.startDodge(input, cameraYaw)) return;
     this.playerState.stamina -= PLAYER_COMBAT.dodgeStaminaCost;
+    const expiredFood = expireStaminaBoostIfDepleted(this.playerState);
+    if (expiredFood) this.callbacks.onStaminaBoostExpired?.(expiredFood);
     this.callbacks.onAction?.('dodge');
   }
 
@@ -215,7 +223,7 @@ export class ActionCombat {
   restorePlayer() {
     if (!this.playerState) return;
     this.playerState.hp = PLAYER_COMBAT.maxHp;
-    this.playerState.stamina = PLAYER_COMBAT.maxStamina;
+    this.playerState.stamina = getStaminaMaximum(this.playerState);
     this.playerState.shift = Math.max(0, this.playerState.shift * 0.5);
     this.world.resetActiveEnemies();
   }

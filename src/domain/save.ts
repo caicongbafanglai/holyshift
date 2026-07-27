@@ -1,9 +1,11 @@
 import {
   CHAPTER_ORDER,
   ENEMIES,
+  FOODS,
   PLAYER_COMBAT,
   type ChapterProgress,
-  type EnemyId
+  type EnemyId,
+  type FoodId
 } from '../data/content';
 
 export const SAVE_SCHEMA_VERSION = 4;
@@ -31,6 +33,12 @@ export interface PlayerSaveState {
   hp: number;
   stamina: number;
   shift: number;
+  activeStaminaFood: FoodId | null;
+}
+
+export interface EconomySaveState {
+  codes: number;
+  inventory: Record<FoodId, number>;
 }
 
 export interface ChapterFlags {
@@ -48,6 +56,7 @@ export interface GameSave {
   writerId: string;
   progress: ChapterProgress;
   player: PlayerSaveState;
+  economy: EconomySaveState;
   defeated: Record<EnemyId, boolean>;
   flags: ChapterFlags;
   checkpoint: null;
@@ -105,7 +114,16 @@ export function createNewSave(writerId = createWriterId()): GameSave {
     player: {
       hp: PLAYER_COMBAT.maxHp,
       stamina: PLAYER_COMBAT.maxStamina,
-      shift: 0
+      shift: 0,
+      activeStaminaFood: null
+    },
+    economy: {
+      codes: 0,
+      inventory: {
+        redSausage: 0,
+        forgetfulBeefNoodles: 0,
+        genghisChicken: 0
+      }
     },
     defeated: {
       'wisp-a': false,
@@ -180,6 +198,30 @@ function normalizeEventId(value: unknown): string | null {
     : null;
 }
 
+function normalizeFoodId(value: unknown): FoodId | null {
+  return typeof value === 'string' && Object.hasOwn(FOODS, value)
+    ? value as FoodId
+    : null;
+}
+
+function normalizeCodes(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+  return Math.round(Math.min(9_999_999.9, Math.max(0, value)) * 10) / 10;
+}
+
+function normalizeInventory(value: unknown): Record<FoodId, number> {
+  const inventory = isRecord(value) ? value : {};
+  return Object.fromEntries(
+    (Object.keys(FOODS) as FoodId[]).map((id) => [
+      id,
+      typeof inventory[id] === 'number' &&
+      Number.isFinite(inventory[id])
+        ? Math.min(999, Math.max(0, Math.floor(inventory[id])))
+        : 0
+    ])
+  ) as Record<FoodId, number>;
+}
+
 export function migrateSave(raw: unknown, writerId: string): GameSave | null {
   if (!isRecord(raw)) return null;
   if (
@@ -215,6 +257,17 @@ export function migrateSave(raw: unknown, writerId: string): GameSave | null {
   const defeated = isRecord(raw.defeated) ? raw.defeated : {};
   const flags = isRecord(raw.flags) ? raw.flags : {};
   const player = isRecord(raw.player) ? raw.player : {};
+  const economy = isRecord(raw.economy) ? raw.economy : {};
+  const candidateFood = normalizeFoodId(player.activeStaminaFood);
+  const candidateStaminaMaximum =
+    PLAYER_COMBAT.maxStamina +
+    (candidateFood ? FOODS[candidateFood].staminaBonus : 0);
+  const normalizedStamina = finiteResource(
+    player.stamina,
+    candidateStaminaMaximum,
+    PLAYER_COMBAT.maxStamina
+  );
+  const activeStaminaFood = normalizedStamina > 0 ? candidateFood : null;
   const revision =
     typeof raw.revision === 'number' &&
     Number.isSafeInteger(raw.revision) &&
@@ -243,12 +296,13 @@ export function migrateSave(raw: unknown, writerId: string): GameSave | null {
     progress: raw.progress as ChapterProgress,
     player: {
       hp: finiteResource(player.hp, PLAYER_COMBAT.maxHp, PLAYER_COMBAT.maxHp),
-      stamina: finiteResource(
-        player.stamina,
-        PLAYER_COMBAT.maxStamina,
-        PLAYER_COMBAT.maxStamina
-      ),
-      shift: finiteResource(player.shift, PLAYER_COMBAT.maxShift, 0)
+      stamina: normalizedStamina,
+      shift: finiteResource(player.shift, PLAYER_COMBAT.maxShift, 0),
+      activeStaminaFood
+    },
+    economy: {
+      codes: normalizeCodes(economy.codes),
+      inventory: normalizeInventory(economy.inventory)
     },
     defeated: Object.fromEntries(
       (Object.keys(ENEMIES) as EnemyId[]).map((id) => [id, defeated[id] === true])

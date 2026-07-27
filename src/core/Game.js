@@ -7,11 +7,21 @@ import { MushiTownWorld } from '../world/MushiTownWorld.js';
 import {
   CHECKPOINTS,
   DIALOGUES,
+  FOODS,
   INTERACTION_LABELS,
   OBJECTIVES,
-  PLAYER_COMBAT
+  PLAYER_COMBAT,
+  TASK_REWARD_CODES
 } from '../data/content.ts';
 import { createNewSave } from '../domain/save.ts';
+import {
+  consumeInventoryFood,
+  expireStaminaBoostIfDepleted,
+  formatCodes,
+  getStaminaMaximum,
+  grantCodes,
+  purchaseFood
+} from '../domain/economy.ts';
 import {
   collidesAt,
   findWalkableGround
@@ -63,6 +73,8 @@ export class Game {
         this.handlePlayerDamage(amount, attacker),
       onPlayerDefeat: () => this.handlePlayerDefeat(),
       onDodge: () => this.audio.play('dodge'),
+      onStaminaBoostExpired: (foodId) =>
+        this.handleStaminaBoostExpired(foodId),
       onFountainShift: () => void this.restoreFountain()
     });
     this.world.onEnemyDefeated = (enemy) => this.handleEnemyDefeated(enemy);
@@ -164,6 +176,23 @@ export class Game {
           );
           return this.save.player.shift;
         },
+        grantCodes: (amount = TASK_REWARD_CODES) => {
+          const codes = grantCodes(
+            this.save.economy,
+            Math.max(0, Number(amount) || 0)
+          );
+          this.updateHud();
+          return codes;
+        },
+        setPlayerStamina: (amount = PLAYER_COMBAT.maxStamina) => {
+          this.save.player.stamina = Math.min(
+            getStaminaMaximum(this.save.player),
+            Math.max(0, Number(amount) || 0)
+          );
+          expireStaminaBoostIfDepleted(this.save.player);
+          this.updateHud();
+          return this.save.player.stamina;
+        },
         setPlayerHealth: (amount = PLAYER_COMBAT.maxHp) => {
           this.save.player.hp = Math.min(
             PLAYER_COMBAT.maxHp,
@@ -238,6 +267,11 @@ export class Game {
           defeated: { ...this.save.defeated },
           flags: { ...this.save.flags },
           player: { ...this.save.player },
+          economy: {
+            ...this.save.economy,
+            inventory: { ...this.save.economy.inventory }
+          },
+          staminaMaximum: getStaminaMaximum(this.save.player),
           position: this.world.player.position.toArray(),
           enemies: Object.fromEntries(
             [...this.world.enemies].map(([id, enemy]) => [
@@ -272,7 +306,7 @@ export class Game {
     });
   }
 
-  handleUiAction(action) {
+  handleUiAction(action, value, kind) {
     switch (action) {
       case 'start-continue':
         void this.continueGame();
@@ -282,6 +316,21 @@ export class Game {
         break;
       case 'interact':
         this.interact();
+        break;
+      case 'open-backpack':
+        this.openBackpack();
+        break;
+      case 'close-backpack':
+        this.closeBackpack();
+        break;
+      case 'close-shop':
+        this.closeShop();
+        break;
+      case 'shop-buy':
+        this.buyFood(value, kind);
+        break;
+      case 'inventory-use':
+        this.useBackpackFood(value);
         break;
       case 'dialogue-next':
         this.advanceDialogue();
@@ -355,6 +404,8 @@ export class Game {
     this.pendingWaveCompletion = null;
     this.defeatHandling = false;
     this.ui.hideDialogue();
+    this.ui.hideShop();
+    this.ui.hideBackpack();
     this.applySaveToWorld(true);
     this.ui.hideStart();
     this.ui.hidePause();
@@ -411,6 +462,9 @@ export class Game {
         this.showDialogueSequence(DIALOGUES.pinguTrace, () =>
           void this.setProgress('consultLin', '确认圣字供应链封签')
         );
+        break;
+      case 'pinguStall':
+        this.openShop();
         break;
       case 'linZhenyin':
         this.showDialogueSequence(DIALOGUES.linWarning, () =>
@@ -488,16 +542,131 @@ export class Game {
     this.focusCanvas();
   }
 
+  openShop() {
+    if (!this.started || this.mode !== 'explore') return;
+    this.mode = 'shop';
+    this.input.setEnabled(false);
+    this.input.releasePointer();
+    this.ui.showShop(this.save);
+  }
+
+  closeShop({ focus = true } = {}) {
+    if (this.mode !== 'shop') return;
+    this.ui.hideShop();
+    this.mode = 'explore';
+    this.input.setEnabled(true);
+    if (focus) this.focusCanvas();
+  }
+
+  openBackpack() {
+    if (!this.started || this.mode !== 'explore') return;
+    this.mode = 'backpack';
+    this.input.setEnabled(false);
+    this.input.releasePointer();
+    this.ui.showBackpack(this.save);
+  }
+
+  closeBackpack({ focus = true } = {}) {
+    if (this.mode !== 'backpack') return;
+    this.ui.hideBackpack();
+    this.mode = 'explore';
+    this.input.setEnabled(true);
+    if (focus) this.focusCanvas();
+  }
+
+  buyFood(value, destination) {
+    if (this.mode !== 'shop') return;
+    if (destination !== 'use' && destination !== 'bag') return;
+    const result = purchaseFood(
+      this.save.economy,
+      this.save.player,
+      value,
+      destination
+    );
+    if (!result.ok) {
+      if (result.reason === 'insufficient-codes' && result.foodId) {
+        const food = FOODS[result.foodId];
+        this.ui.showToast(
+          `${food.name}需要 ${formatCodes(food.price)} 码，当前余额 ${formatCodes(this.save.economy.codes)} 码。`,
+          2600
+        );
+      } else if (result.reason === 'inventory-full' && result.foodId) {
+        this.ui.showToast(
+          `${FOODS[result.foodId].name}已达到背包上限，未扣除码。`,
+          2600
+        );
+      } else {
+        this.ui.showToast('这份食品没有通过商品备案。', 2400);
+      }
+      return;
+    }
+    const food = FOODS[result.foodId];
+    this.ui.renderShop(this.save);
+    this.updateHud();
+    this.ui.showToast(
+      destination === 'use'
+        ? `已食用${food.name}：耐力上限变为 ${formatCodes(getStaminaMaximum(this.save.player))}，耐力归零后失效。`
+        : `${food.name}已放入背包，按 B 可查看与使用。`,
+      3600
+    );
+    void this.commitSave(`Pingu 摊位购买 ${food.name}`, false);
+  }
+
+  useBackpackFood(value) {
+    if (this.mode !== 'backpack') return;
+    const result = consumeInventoryFood(
+      this.save.economy,
+      this.save.player,
+      value
+    );
+    if (!result.ok) {
+      this.ui.showToast('背包里没有这份食品。', 2200);
+      return;
+    }
+    const food = FOODS[result.foodId];
+    this.ui.renderBackpack(this.save);
+    this.updateHud();
+    this.ui.showToast(
+      `已食用${food.name}：耐力上限变为 ${formatCodes(getStaminaMaximum(this.save.player))}。`,
+      3000
+    );
+    void this.commitSave(`背包食用 ${food.name}`, false);
+  }
+
+  handleStaminaBoostExpired(foodId) {
+    const food = FOODS[foodId];
+    this.updateHud();
+    this.ui.showToast(
+      `${food?.name ?? '食品'}增益已随耐力归零而结束；耐力上限恢复为 100。`,
+      3200
+    );
+    void this.commitSave('食品耐力增益归零失效', false);
+  }
+
   async setProgress(progress, reason) {
     if (this.save.progress === progress) return true;
     this.save.progress = progress;
+    const rewardEvent = `reward:progress:${progress}`;
+    const rewarded = !this.save.consumedEvents.includes(rewardEvent);
+    if (rewarded) {
+      this.save.consumedEvents.push(rewardEvent);
+      this.save.consumedEvents = this.save.consumedEvents.slice(-64);
+      grantCodes(this.save.economy, TASK_REWARD_CODES);
+    }
     if (progress === 'inspectElevator') {
       this.save.flags.fountainRestored = true;
     }
     this.applySaveToWorld(false);
     const saved = await this.commitSave(reason);
     this.ui.showChapterUpdate(OBJECTIVES[progress]);
-    if (saved) this.ui.showToast('主线进度已自动保存。', 1900);
+    if (saved) {
+      this.ui.showToast(
+        rewarded
+          ? `主线进度已自动保存。任务推进完成：获得 ${TASK_REWARD_CODES} 码，余额 ${formatCodes(this.save.economy.codes)} 码。`
+          : '主线进度已自动保存。',
+        rewarded ? 3000 : 1900
+      );
+    }
     return saved;
   }
 
@@ -641,6 +810,24 @@ export class Game {
     if (this.input.consumePressed('m')) {
       this.setMuted(!this.save.settings.muted);
     }
+    if (this.mode === 'shop') {
+      if (this.input.consumePressed('b')) {
+        this.closeShop({ focus: false });
+        this.openBackpack();
+      } else if (this.input.consumePressed('escape')) {
+        this.closeShop();
+      }
+      return;
+    }
+    if (this.mode === 'backpack') {
+      if (
+        this.input.consumePressed('b') ||
+        this.input.consumePressed('escape')
+      ) {
+        this.closeBackpack();
+      }
+      return;
+    }
     if (this.mode === 'pause') {
       if (this.input.consumePressed('escape')) this.resume();
       return;
@@ -658,6 +845,10 @@ export class Game {
       );
     }
     if (this.input.consumePressed('r')) this.safeReset();
+    if (this.mode === 'explore' && this.input.consumePressed('b')) {
+      this.openBackpack();
+      return;
+    }
     if (
       this.mode === 'dialogue' &&
       (this.input.consumePressed('e') || this.input.consumePressed('enter'))
@@ -705,6 +896,8 @@ export class Game {
         this.save.player.stamina -
           flightSeconds * PLAYER_COMBAT.flightStaminaPerSecond
       );
+      const expiredFood = expireStaminaBoostIfDepleted(this.save.player);
+      if (expiredFood) this.handleStaminaBoostExpired(expiredFood);
     }
 
     const inHealingWater = this.world.isPlayerInFountainWater();

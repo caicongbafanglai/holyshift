@@ -418,6 +418,7 @@ describe('plaza collision and anti-softlock invariants', () => {
       ['pastorSenior', 'intro'],
       ['fountain', 'inspectFountain'],
       ['pingu', 'traceSacredGlyph'],
+      ['pinguStall', 'intro'],
       ['linZhenyin', 'consultLin'],
       ['elevator', 'inspectElevator'],
       ['student', 'complete'],

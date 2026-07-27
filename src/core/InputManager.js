@@ -6,6 +6,7 @@ const CONTROL_KEYS = new Set([
   'shift',
   'space',
   'e',
+  'b',
   'v',
   'r',
   'm',

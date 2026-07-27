@@ -114,7 +114,20 @@ describe('transactional v0.3 local save', () => {
     storage.setItem(SAVE_KEYS.primary, envelope(forged));
     const loaded = manager.load().save;
 
-    expect(loaded.player).toEqual({ hp: 120, stamina: 0, shift: 0 });
+    expect(loaded.player).toEqual({
+      hp: 120,
+      stamina: 0,
+      shift: 0,
+      activeStaminaFood: null
+    });
+    expect(loaded.economy).toEqual({
+      codes: 0,
+      inventory: {
+        redSausage: 0,
+        forgetfulBeefNoodles: 0,
+        genghisChicken: 0
+      }
+    });
     expect(loaded.defeated).toEqual({
       'wisp-a': true,
       'wisp-b': false,
@@ -150,6 +163,59 @@ describe('transactional v0.3 local save', () => {
     expect(loaded.progress).toBe('intro');
     expect(loaded.playSeconds).toBe(321);
     expect(loaded.settings.muted).toBe(true);
+  });
+
+  it('adds the food economy to an existing v4 save without clearing progress', () => {
+    const storage = new MemoryStorage();
+    const manager = new SaveManager(storage, 'tab-a');
+    const oldV4 = createNewSave('old-tab') as unknown as Record<string, unknown>;
+    delete oldV4.economy;
+    oldV4.progress = 'consultLin';
+    oldV4.player = { hp: 88, stamina: 72, shift: 34 };
+    storage.setItem(SAVE_KEYS.primary, envelope(oldV4));
+
+    const loaded = manager.load().save;
+
+    expect(loaded.progress).toBe('consultLin');
+    expect(loaded.player.activeStaminaFood).toBeNull();
+    expect(loaded.economy.codes).toBe(0);
+    expect(Object.values(loaded.economy.inventory)).toEqual([0, 0, 0]);
+  });
+
+  it('preserves a valid food boost but expires forged zero-stamina boosts', () => {
+    const storage = new MemoryStorage();
+    const manager = new SaveManager(storage, 'tab-a');
+    const boosted = {
+      ...createNewSave('tab-a'),
+      player: {
+        hp: 120,
+        stamina: 350,
+        shift: 0,
+        activeStaminaFood: 'genghisChicken'
+      },
+      economy: {
+        codes: 123.27,
+        inventory: {
+          redSausage: 2.9,
+          forgetfulBeefNoodles: -4,
+          genghisChicken: 5000
+        }
+      }
+    };
+    storage.setItem(SAVE_KEYS.primary, envelope(boosted));
+    const loaded = manager.load().save;
+    expect(loaded.player.stamina).toBe(350);
+    expect(loaded.player.activeStaminaFood).toBe('genghisChicken');
+    expect(loaded.economy.codes).toBe(123.3);
+    expect(loaded.economy.inventory).toEqual({
+      redSausage: 2,
+      forgetfulBeefNoodles: 0,
+      genghisChicken: 999
+    });
+
+    boosted.player.stamina = 0;
+    storage.setItem(SAVE_KEYS.primary, envelope(boosted));
+    expect(manager.load().save.player.activeStaminaFood).toBeNull();
   });
 
   it('rejects future schemas without overwriting their source record', () => {

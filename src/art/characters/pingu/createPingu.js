@@ -16,45 +16,23 @@ import {
 } from '../common/modeling/organicGeometry.js';
 
 function createBeakGeometry() {
-  const width = 0.27;
-  const height = 0.15;
-  const depth = 0.255;
-  const positions = [
-    -width / 2, height * 0.32, 0,
-    width / 2, height * 0.32, 0,
-    -width * 0.43, -height * 0.48, 0,
-    width * 0.43, -height * 0.48, 0,
-    -width * 0.39, height * 0.23, depth,
-    width * 0.39, height * 0.23, depth,
-    -width * 0.34, -height * 0.39, depth * 0.97,
-    width * 0.34, -height * 0.39, depth * 0.97,
-    0, height * 0.58, depth * 0.48
-  ];
-  const indices = [
-    0, 1, 8,
-    0, 8, 4,
-    1, 5, 8,
-    4, 8, 5,
-    0, 4, 2,
-    2, 4, 6,
-    1, 3, 5,
-    3, 7, 5,
-    2, 6, 3,
-    3, 6, 7,
-    4, 6, 5,
-    5, 6, 7,
-    0, 2, 1,
-    1, 2, 3
-  ];
-  const geometry = new THREE.BufferGeometry();
-  geometry.name = 'Pingu上下喙一体雕刻拓扑';
-  geometry.setAttribute(
-    'position',
-    new THREE.Float32BufferAttribute(positions, 3)
+  return createExtrudedPanelGeometry(
+    [
+      [-0.145, 0.015],
+      [-0.072, 0.055],
+      [0, 0.07],
+      [0.072, 0.055],
+      [0.145, 0.015],
+      [0.11, -0.04],
+      [0, -0.065],
+      [-0.11, -0.04]
+    ],
+    {
+      depth: 0.09,
+      bevel: 0.014,
+      name: 'Pingu上下喙一体雕刻拓扑'
+    }
   );
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-  return geometry;
 }
 
 function createPinguBody(visual, materials) {
@@ -173,25 +151,23 @@ function addPinguFace(visual, materials) {
     createBeakGeometry(),
     materials.orange,
     'Pingu正面立体上下喙',
-    [0, 1.19, 0.34]
+    [0, 1.19, 0.45]
   );
   const mouthSeam = createMesh(
     createExtrudedPanelGeometry(
       [
-        [-0.1, 0.006],
-        [-0.055, -0.006],
-        [0, -0.01],
-        [0.055, -0.006],
-        [0.1, 0.006],
-        [0.055, 0.016],
-        [0, 0.013],
-        [-0.055, 0.016]
+        [-0.108, 0.004],
+        [0, 0.001],
+        [0.108, 0.004],
+        [0.108, -0.004],
+        [0, -0.007],
+        [-0.108, -0.004]
       ],
-      { depth: 0.012, bevel: 0.003, name: 'Pingu正面嘴缝拓扑' }
+      { depth: 0.01, bevel: 0.002, name: 'Pingu正面嘴缝拓扑' }
     ),
     materials.mouth,
     'Pingu正面嘴缝',
-    [0, 1.18, 0.596]
+    [0, 1.181, 0.516]
   );
   visual.add(beak, mouthSeam);
 }
@@ -369,8 +345,16 @@ export function createPingu() {
   const materials = {
     black: createCharacterMaterial(0x152332, { roughness: 0.68 }),
     white: createCharacterMaterial(0xf3efe2, { roughness: 0.75 }),
-    orange: createCharacterMaterial(0xe7973d, { roughness: 0.58 }),
-    mouth: createCharacterMaterial(0x6f2e28, { roughness: 0.78 }),
+    orange: createCharacterMaterial(0xd46d22, {
+      roughness: 0.68,
+      transparent: false,
+      opacity: 1
+    }),
+    mouth: createCharacterMaterial(0x67251f, {
+      roughness: 0.78,
+      transparent: false,
+      opacity: 1
+    }),
     eye: createCharacterMaterial(0x071118, { roughness: 0.18 }),
     catchlight: createCharacterMaterial(0xffffff, {
       roughness: 0.1,

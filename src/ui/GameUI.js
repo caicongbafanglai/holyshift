@@ -1,7 +1,21 @@
-import { OBJECTIVES, PLAYER_COMBAT } from '../data/content.ts';
+import {
+  FOOD_ORDER,
+  FOODS,
+  OBJECTIVES,
+  PLAYER_COMBAT
+} from '../data/content.ts';
+import {
+  formatCodes,
+  getStaminaMaximum
+} from '../domain/economy.ts';
 
 function formatMinutes(seconds) {
   return Math.max(1, Math.floor(seconds / 60));
+}
+
+function formatStamina(value) {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
 export class GameUI {
@@ -13,6 +27,7 @@ export class GameUI {
     this.lastFocused = null;
     this.activeModal = null;
     this.renderShell();
+    this.populateFoodPanels();
     this.bind();
   }
 
@@ -41,12 +56,19 @@ export class GameUI {
         <div class="resource resource--stamina" title="耐力">
           <span>耐力</span>
           <div><i data-ui="stamina-fill"></i></div>
-          <b data-ui="stamina-text">100</b>
+          <b data-ui="stamina-text">100 / 100</b>
         </div>
         <div class="resource resource--shift" title="Holy Shift 能量">
           <span>SHIFT</span>
           <div><i data-ui="shift-fill"></i></div>
           <b data-ui="shift-text">0 / 100</b>
+        </div>
+        <div class="wallet">
+          <span>码 <b data-ui="wallet-codes">0</b></span>
+          <small data-ui="active-food">当前无食品增益</small>
+          <button type="button" data-action="open-backpack" aria-label="打开背包">
+            <kbd>B</kbd><span>背包</span>
+          </button>
         </div>
       </section>
 
@@ -80,6 +102,7 @@ export class GameUI {
           <div><kbd>Space</kbd><span>跳跃</span></div>
           <div class="key-guide__wide"><kbd>Ctrl + Shift + W A S D</kbd><span>视向飞行 · 俯视滑翔回耐</span></div>
           <div><kbd>E</kbd><span>调查 / 交谈</span></div>
+          <div><kbd>B</kbd><span>背包 / 使用食品</span></div>
           <div><kbd>V</kbd><span>第一 / 第三人称</span></div>
           <div><kbd>R</kbd><span>安全点复位</span></div>
           <div><kbd>Esc</kbd><span>暂停 / 设置</span></div>
@@ -143,6 +166,43 @@ export class GameUI {
         </div>
       </section>
 
+      <section class="overlay economy-overlay is-hidden" data-ui="shop" aria-modal="true" role="dialog" aria-labelledby="shop-title">
+        <div class="panel panel--economy">
+          <header class="economy-header">
+            <div>
+              <p class="eyebrow">红肠食品集团 · 神圣食品专供</p>
+              <h2 id="shop-title">Pingu 食品摊位</h2>
+              <p>嘎。购买后可立即使用，也可放入背包稍后食用。</p>
+            </div>
+            <div class="economy-balance"><span>余额</span><b data-ui="shop-codes">0</b><small>码</small></div>
+          </header>
+          <div class="food-grid" data-ui="shop-items"></div>
+          <footer class="economy-footer">
+            <span>食品增益在耐力归零时失效，上限恢复为 100。</span>
+            <button class="button button--ghost" type="button" data-action="close-shop">离开摊位</button>
+          </footer>
+        </div>
+      </section>
+
+      <section class="overlay economy-overlay is-hidden" data-ui="backpack" aria-modal="true" role="dialog" aria-labelledby="backpack-title">
+        <div class="panel panel--economy">
+          <header class="economy-header">
+            <div>
+              <p class="eyebrow">随身物资 · 按 B 快速开关</p>
+              <h2 id="backpack-title">老牧师的背包</h2>
+              <p data-ui="backpack-status">食品使用后提高耐力上限。</p>
+            </div>
+            <div class="economy-balance"><span>余额</span><b data-ui="backpack-codes">0</b><small>码</small></div>
+          </header>
+          <p class="backpack-empty is-hidden" data-ui="backpack-empty">背包里暂时没有食品。去 Pingu 的摊位看看。</p>
+          <div class="food-grid food-grid--backpack" data-ui="backpack-items"></div>
+          <footer class="economy-footer">
+            <span>当前增益：<b data-ui="backpack-active-food">无</b></span>
+            <button class="button button--primary" type="button" data-action="close-backpack">返回游戏 <kbd>B</kbd></button>
+          </footer>
+        </div>
+      </section>
+
       <section class="overlay pause is-hidden" data-ui="pause" aria-modal="true" role="dialog">
         <div class="panel panel--pause">
           <p class="eyebrow">牧已成舟 · 旅程暂停</p>
@@ -187,6 +247,88 @@ export class GameUI {
     `;
     this.container.appendChild(this.root);
     this.cacheElements();
+  }
+
+  populateFoodPanels() {
+    this.shopPurchaseButtons = [];
+    this.inventoryRows = new Map();
+    for (const id of FOOD_ORDER) {
+      const food = FOODS[id];
+      const shopCard = this.createFoodCard(food, 'shop');
+      this.elements['shop-items'].appendChild(shopCard);
+      const inventoryCard = this.createFoodCard(food, 'backpack');
+      this.elements['backpack-items'].appendChild(inventoryCard);
+    }
+  }
+
+  createFoodCard(food, context) {
+    const card = document.createElement('article');
+    card.className = `food-card food-card--${food.id}`;
+    card.dataset.foodId = food.id;
+
+    const visual = document.createElement('div');
+    visual.className = 'food-card__visual';
+    visual.setAttribute('aria-hidden', 'true');
+    visual.textContent = food.id === 'redSausage'
+      ? '肠'
+      : food.id === 'forgetfulBeefNoodles'
+        ? '面'
+        : '鸡';
+
+    const copy = document.createElement('div');
+    copy.className = 'food-card__copy';
+    const title = document.createElement('h3');
+    title.textContent = food.name;
+    const appearance = document.createElement('p');
+    appearance.textContent = food.appearance;
+    const effect = document.createElement('strong');
+    effect.textContent = `耐力上限 +${formatStamina(food.staminaBonus)}`;
+    const description = document.createElement('small');
+    description.textContent = food.description;
+    copy.append(title, appearance, effect, description);
+
+    card.append(visual, copy);
+    if (context === 'shop') {
+      const price = document.createElement('div');
+      price.className = 'food-card__price';
+      const priceValue = document.createElement('b');
+      priceValue.textContent = formatCodes(food.price);
+      const priceUnit = document.createElement('span');
+      priceUnit.textContent = '码';
+      price.append(priceValue, priceUnit);
+
+      const actions = document.createElement('div');
+      actions.className = 'food-card__actions';
+      for (const [kind, label, className] of [
+        ['use', '立即使用', 'button--primary'],
+        ['bag', '放入背包', 'button--ghost']
+      ]) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `button ${className}`;
+        button.dataset.action = 'shop-buy';
+        button.dataset.value = food.id;
+        button.dataset.kind = kind;
+        button.textContent = label;
+        button.dataset.price = String(food.price);
+        this.shopPurchaseButtons.push(button);
+        actions.appendChild(button);
+      }
+      card.append(price, actions);
+    } else {
+      const quantity = document.createElement('b');
+      quantity.className = 'food-card__quantity';
+      quantity.textContent = '× 0';
+      const use = document.createElement('button');
+      use.type = 'button';
+      use.className = 'button button--primary';
+      use.dataset.action = 'inventory-use';
+      use.dataset.value = food.id;
+      use.textContent = '使用';
+      card.append(quantity, use);
+      this.inventoryRows.set(food.id, { card, quantity, use });
+    }
+    return card;
   }
 
   cacheElements() {
@@ -259,8 +401,12 @@ export class GameUI {
     fps,
     boss
   }) {
+    const staminaMaximum = getStaminaMaximum(save.player);
     const hpPercent = (save.player.hp / PLAYER_COMBAT.maxHp) * 100;
-    const staminaPercent = (save.player.stamina / PLAYER_COMBAT.maxStamina) * 100;
+    const staminaPercent = Math.min(
+      100,
+      (save.player.stamina / staminaMaximum) * 100
+    );
     const shiftPercent = (save.player.shift / PLAYER_COMBAT.maxShift) * 100;
     this.elements['hp-fill'].style.width = `${hpPercent}%`;
     this.elements['stamina-fill'].style.width = `${staminaPercent}%`;
@@ -268,10 +414,14 @@ export class GameUI {
     this.elements['hp-text'].textContent =
       `${Math.ceil(save.player.hp)} / ${PLAYER_COMBAT.maxHp}`;
     this.elements['stamina-text'].textContent =
-      String(Math.floor(save.player.stamina));
+      `${formatStamina(save.player.stamina)} / ${formatStamina(staminaMaximum)}`;
     this.elements['shift-text'].textContent =
       `${Math.floor(save.player.shift)} / ${PLAYER_COMBAT.maxShift}`;
     this.elements['view-mode'].textContent = cameraLabel;
+    this.elements['wallet-codes'].textContent = formatCodes(save.economy.codes);
+    this.elements['active-food'].textContent = save.player.activeStaminaFood
+      ? `${FOODS[save.player.activeStaminaFood].name}增益 · 上限 ${formatStamina(staminaMaximum)}`
+      : '当前无食品增益';
     this.elements.objective.textContent = OBJECTIVES[save.progress];
 
     if (objectivePosition) {
@@ -351,6 +501,61 @@ export class GameUI {
     this.releaseModal(this.elements.pause);
   }
 
+  renderShop(save) {
+    this.elements['shop-codes'].textContent = formatCodes(save.economy.codes);
+    for (const button of this.shopPurchaseButtons) {
+      const price = Number(button.dataset.price);
+      const affordable = save.economy.codes + Number.EPSILON >= price;
+      button.disabled = !affordable;
+      button.title = affordable ? '' : `还差 ${formatCodes(price - save.economy.codes)} 码`;
+    }
+  }
+
+  showShop(save) {
+    this.renderShop(save);
+    this.elements.shop.classList.remove('is-hidden');
+    this.focusModal(this.elements.shop);
+  }
+
+  hideShop() {
+    this.elements.shop.classList.add('is-hidden');
+    this.releaseModal(this.elements.shop);
+  }
+
+  renderBackpack(save) {
+    this.elements['backpack-codes'].textContent = formatCodes(save.economy.codes);
+    let total = 0;
+    for (const id of FOOD_ORDER) {
+      const quantity = save.economy.inventory[id];
+      total += quantity;
+      const row = this.inventoryRows.get(id);
+      row.quantity.textContent = `× ${quantity}`;
+      row.use.disabled = quantity <= 0;
+      row.card.classList.toggle('is-empty', quantity <= 0);
+    }
+    this.elements['backpack-empty'].classList.toggle('is-hidden', total > 0);
+    const activeFood = save.player.activeStaminaFood
+      ? FOODS[save.player.activeStaminaFood]
+      : null;
+    this.elements['backpack-active-food'].textContent = activeFood
+      ? `${activeFood.name} · 耐力上限 ${formatStamina(getStaminaMaximum(save.player))}`
+      : '无 · 基础耐力上限 100';
+    this.elements['backpack-status'].textContent = total > 0
+      ? `共 ${total} 份食品；再次食用会替换当前食品增益。`
+      : '食品使用后提高耐力上限。';
+  }
+
+  showBackpack(save) {
+    this.renderBackpack(save);
+    this.elements.backpack.classList.remove('is-hidden');
+    this.focusModal(this.elements.backpack);
+  }
+
+  hideBackpack() {
+    this.elements.backpack.classList.add('is-hidden');
+    this.releaseModal(this.elements.backpack);
+  }
+
   applySettings(settings) {
     this.elements.volume.value = String(settings.volume);
     this.elements['reduced-motion'].checked = settings.reducedMotion;
@@ -410,7 +615,7 @@ export class GameUI {
   }
 
   isModalOpen() {
-    return ['start-screen', 'pause', 'fatal'].some(
+    return ['start-screen', 'shop', 'backpack', 'pause', 'fatal'].some(
       (name) => !this.elements[name].classList.contains('is-hidden')
     );
   }

@@ -4,8 +4,11 @@ import {
   CHECKPOINTS,
   DIALOGUES,
   ENEMIES,
+  FOOD_ORDER,
+  FOODS,
   OBJECTIVES,
-  PLAYER_COMBAT
+  PLAYER_COMBAT,
+  TASK_REWARD_CODES
 } from '../src/data/content';
 
 describe('Holy Shift world bible v0.3 content', () => {
@@ -79,5 +82,25 @@ describe('Holy Shift world bible v0.3 content', () => {
     expect(text).not.toContain('阿门，不是 Amen');
     expect(text).not.toContain('神圣不可怕，神剩才可怕');
     expect(text).not.toContain('不要慌，牧已成舟');
+  });
+
+  it('defines Pingu food prices, stamina bonuses and task currency exactly', () => {
+    expect(TASK_REWARD_CODES).toBe(91);
+    expect(FOOD_ORDER).toEqual([
+      'redSausage',
+      'forgetfulBeefNoodles',
+      'genghisChicken'
+    ]);
+    expect(
+      FOOD_ORDER.map((id) => [
+        FOODS[id].name,
+        FOODS[id].price,
+        FOODS[id].staminaBonus
+      ])
+    ).toEqual([
+      ['红肠', 18, 27.8],
+      ['忘情牛肉面', 27.8, 91],
+      ['成吉思鸡', 200, 278]
+    ]);
   });
 });

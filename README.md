@@ -21,6 +21,8 @@
 
 战斗不会切进按钮回合屏；攻击、闪避、受击、敌人追击和 Holy Shift 均发生在可移动的 3D 世界中。
 
+每次主线任务推进会一次性获得 `91 码`。Pingu 的食品摊位出售红肠、忘情牛肉面和成吉思鸡；购买时可立即食用或放入背包。食品会临时提高耐力上限，耐力归零时增益结束并恢复为基础上限 `100`。
+
 ## 操作
 
 | 输入 | 功能 |
@@ -34,6 +36,7 @@
 | 鼠标右键 / `Q` | 16.5 米大范围高伤 Holy Shift（消耗 40 SHIFT） |
 | 单按 `Ctrl` | 闪避 |
 | `E` | 调查 / 交谈 |
+| `B` | 打开 / 关闭背包，使用已购买食品 |
 | `V` | 第一 / 第三人称切换 |
 | `R` | 返回最近安全点 |
 | `Esc` | 暂停 / 设置 |
@@ -83,12 +86,12 @@ xvfb-run -a env PW_FIREFOX_HEADED=1 npm run e2e:firefox
 - `src/art/characters/<character>`：老牧师、Pingu、林镇阴、牧司学姐与群众的独立模型。
 - `src/art/enemies`：生水泡影与已审批水鬼。
 - `src/art/architecture`：神圣广场、圣水池、私募教堂与远景城市。
-- `src/art/props`：公告牌、长椅、路灯、签到机与红肠补给车。
+- `src/art/props`：公告牌、长椅、路灯、签到机、红肠补给车与三种独立食品陈列模型。
 - `src/gameplay/combat`：场景内实时战斗、判定、受击与敌人 AI。
 - `src/gameplay/quests`：第一章状态机。
 - `src/world/collision`：碰撞体工厂；`src/world/MushiTownWorld.js` 负责世界拼装。
-- `src/domain`：实时战斗纯函数与版本化存档。
-- `src/ui`：HUD、目标、对话、设置与操作说明。
+- `src/domain`：实时战斗、码货币/食品增益纯函数与版本化存档。
+- `src/ui`：HUD、目标、对话、食品商店、背包、设置与操作说明。
 
 ## 流畅度与防卡死
 
@@ -110,6 +113,7 @@ xvfb-run -a env PW_FIREFOX_HEADED=1 npm run e2e:firefox
 - IndexedDB `current` / `backup` 原子更新；
 - 同步紧急日志保护“保存后立刻刷新”的最新进度；
 - schema、内容版本与完整性校验；
+- 码余额、食品背包与当前耐力食品增益随进度一并保存；
 - 坏主档自动恢复，双档损坏时阻止覆盖并提供确认重置；
 - Web Locks 保证同一来源只有一个写入标签页，并处理刚关闭标签页的接管竞态。
 
@@ -119,7 +123,7 @@ xvfb-run -a env PW_FIREFOX_HEADED=1 npm run e2e:firefox
 
 - [世界观 v0.3](docs/HOLY_SHIFT_WORLD_BIBLE_V0.3.md)
 - [第一章实现基线 v0.3](docs/HOLY_SHIFT_IMPLEMENTATION_V0.3.md)
-- [候选发布验证](docs/RELEASE_VALIDATION_2026-07-27.md)
+- [候选发布验证](docs/RELEASE_VALIDATION_2026-07-28.md)
 - [第三方许可](THIRD_PARTY_NOTICES.md)
 
 旧版世界观、回合制产品定位与旧 Gate 草案仅保留为历史记录，不再构成当前实现要求。

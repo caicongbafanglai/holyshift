@@ -106,4 +106,26 @@ describe('Holy Shift combat and recovery loop', () => {
       40 + PLAYER_COMBAT.glideStaminaRecoveryPerSecond * 0.5
     );
   });
+
+  it('recovers to a food-boosted maximum and expires the boost at zero', () => {
+    const world = createCombatWorld();
+    const expired = [];
+    const combat = new ActionCombat(world, {
+      onStaminaBoostExpired: (foodId) => expired.push(foodId)
+    });
+    const playerState = {
+      hp: PLAYER_COMBAT.maxHp,
+      stamina: 126,
+      shift: 0,
+      activeStaminaFood: 'redSausage'
+    };
+    combat.bindState(playerState, {});
+    combat.update(1, pressedInput(), 0, true);
+    expect(playerState.stamina).toBe(127.8);
+
+    playerState.stamina = 0;
+    combat.update(0, pressedInput(), 0, true);
+    expect(playerState.activeStaminaFood).toBeNull();
+    expect(expired).toEqual(['redSausage']);
+  });
 });

@@ -420,6 +420,18 @@ export class MushiTownWorld {
     cart.position.set(MAP.pingu.x + 2.8, 0, MAP.pingu.z - 1.8);
     cart.rotation.y = -0.22;
     this.scene.add(cart);
+    const stallPosition = cart.localToWorld(new THREE.Vector3(2.7, 0, 1));
+    const stallAnchor = new THREE.Object3D();
+    stallAnchor.name = 'Pingu食品摊位交互锚点';
+    stallAnchor.position.copy(stallPosition);
+    stallAnchor.userData.visual = cart;
+    this.interactableObjects.set('pinguStall', stallAnchor);
+    this.scene.add(stallAnchor);
+    const stallMarker = createInteractionMarker(0xf1cc68);
+    stallMarker.position.copy(stallPosition);
+    stallMarker.position.y = 0.24;
+    this.scene.add(stallMarker);
+    this.markers.set('pinguStall', stallMarker);
     this.baseColliders.push(
       boxCollider(
         '红肠补给车碰撞',

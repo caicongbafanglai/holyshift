@@ -11,6 +11,20 @@ export type ChapterProgress =
 
 export type EnemyId = 'wisp-a' | 'wisp-b' | 'wisp-c' | 'approved-water-ghost';
 
+export type FoodId =
+  | 'redSausage'
+  | 'forgetfulBeefNoodles'
+  | 'genghisChicken';
+
+export interface FoodDefinition {
+  id: FoodId;
+  name: string;
+  price: number;
+  staminaBonus: number;
+  appearance: string;
+  description: string;
+}
+
 export interface EnemyDefinition {
   id: EnemyId;
   name: string;
@@ -52,6 +66,41 @@ export const PLAYER_COMBAT = {
   fountainHealPerSecond: 30,
   fountainShiftRecoveryPerSecond: 28
 } as const;
+
+export const TASK_REWARD_CODES = 91;
+
+export const FOOD_ORDER: FoodId[] = [
+  'redSausage',
+  'forgetfulBeefNoodles',
+  'genghisChicken'
+];
+
+export const FOODS: Record<FoodId, FoodDefinition> = {
+  redSausage: {
+    id: 'redSausage',
+    name: '红肠',
+    price: 18,
+    staminaBonus: 27.8,
+    appearance: '摊位上数量最多的备案红肠',
+    description: '耐力上限临时提高 27.8 点，耐力归零后恢复为 100。'
+  },
+  forgetfulBeefNoodles: {
+    id: 'forgetfulBeefNoodles',
+    name: '忘情牛肉面',
+    price: 27.8,
+    staminaBonus: 91,
+    appearance: '看起来普通、实际上不普通的一碗牛肉面',
+    description: '耐力上限临时提高 91 点，耐力归零后恢复为 100。'
+  },
+  genghisChicken: {
+    id: 'genghisChicken',
+    name: '成吉思鸡',
+    price: 200,
+    staminaBonus: 278,
+    appearance: '金黄酱汁里隐约可见块状黄油鸡的一锅料理',
+    description: '耐力上限临时提高 278 点，耐力归零后恢复为 100。'
+  }
+};
 
 export const ENEMIES: Record<EnemyId, EnemyDefinition> = {
   'wisp-a': {
@@ -255,6 +304,7 @@ export const INTERACTION_LABELS: Record<string, string> = {
   pastorSenior: '与牧司学姐交谈',
   fountain: '检查圣水池流程中枢',
   pingu: '向 Pingu 核对备案',
+  pinguStall: '查看 Pingu 食品摊位',
   linZhenyin: '询问林镇阴',
   elevator: '查看神圣电梯',
   student: '听学生汇报症状',

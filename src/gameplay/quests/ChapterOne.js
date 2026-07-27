@@ -23,6 +23,7 @@ export function progressIndex(progress) {
 export function getInteractionIds(progress) {
   return [
     ...(MAIN_INTERACTIONS[progress] ?? []),
+    'pinguStall',
     'student',
     'believer',
     'noticeBoard'
