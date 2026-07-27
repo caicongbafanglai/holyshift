@@ -97,9 +97,10 @@ function openDatabase(): Promise<IDBDatabase> {
 function cloneSave(save: GameSave): GameSave {
   return {
     ...save,
-    loadout: { ...save.loadout },
+    player: { ...save.player },
     defeated: { ...save.defeated },
-    checkpoint: save.checkpoint ? structuredClone(save.checkpoint) : null,
+    flags: { ...save.flags },
+    checkpoint: null,
     consumedEvents: [...save.consumedEvents],
     settings: { ...save.settings }
   };
@@ -155,26 +156,38 @@ async function acquireWriterLock(): Promise<{
 
   let release = () => {};
   let lockTask: Promise<void> = Promise.resolve();
-  const acquired = await new Promise<boolean>((resolve, reject) => {
-    lockTask = navigator.locks
-      .request(
-        LOCK_NAME,
-        { mode: 'exclusive', ifAvailable: true },
-        async (lock) => {
-          if (!lock) {
-            resolve(false);
-            return;
+  const tryAcquire = () =>
+    new Promise<boolean>((resolve, reject) => {
+      lockTask = navigator.locks
+        .request(
+          LOCK_NAME,
+          { mode: 'exclusive', ifAvailable: true },
+          async (lock) => {
+            if (!lock) {
+              resolve(false);
+              return;
+            }
+            await new Promise<void>((releaseLock) => {
+              release = releaseLock;
+              resolve(true);
+            });
           }
-          await new Promise<void>((releaseLock) => {
-            release = releaseLock;
-            resolve(true);
-          });
-        }
-      )
-      .catch((error) => {
-        reject(error);
-      });
-  });
+        )
+        .catch((error) => {
+          reject(error);
+        });
+    });
+
+  let acquired = false;
+  for (let attempt = 0; attempt < 5 && !acquired; attempt += 1) {
+    acquired = await tryAcquire();
+    if (!acquired && attempt < 4) {
+      // Closing a tab releases its Web Lock asynchronously in some engines.
+      // A short bounded retry prevents a just-closed writer from looking like
+      // a genuinely active second tab.
+      await new Promise((resolve) => window.setTimeout(resolve, 125));
+    }
+  }
 
   if (!acquired) {
     throw new PersistenceBlockedError(
@@ -262,39 +275,67 @@ export class IndexedDbSaveManager {
 
     const current = decodeSave(currentRaw ?? null, this.writerId);
     const backup = decodeSave(backupRaw ?? null, this.writerId);
+    let emergencyRaw: string | null = null;
+    try {
+      emergencyRaw = localStorage.getItem(SAVE_KEYS.temporary);
+    } catch {
+      emergencyRaw = null;
+    }
+    const emergency = decodeSave(emergencyRaw, this.writerId);
 
-    if (current) {
-      current.writerId = this.writerId;
-      this.nextRevision = current.revision;
+    const candidates = [
+      current ? { source: 'primary' as const, save: current } : null,
+      backup ? { source: 'backup' as const, save: backup } : null,
+      emergency ? { source: 'emergency' as const, save: emergency } : null
+    ]
+      .filter((candidate): candidate is {
+        source: 'primary' | 'backup' | 'emergency';
+        save: GameSave;
+      } => candidate !== null)
+      .sort((left, right) => right.save.revision - left.save.revision);
+
+    if (candidates.length > 0) {
+      const selected = candidates[0];
+      selected.save.writerId = this.writerId;
+      this.nextRevision = selected.save.revision;
+      if (selected.source === 'emergency') {
+        await this.restoreEmergency(selected.save, currentRaw ?? null);
+        this.clearEmergencyJournal(selected.save.revision);
+        return {
+          save: selected.save,
+          recoveredFrom: 'temporary',
+          warnings: ['检测到页面在事务落盘前中断，已从同步紧急日志恢复最新进度。']
+        };
+      }
+      if (selected.source === 'backup') {
+        await this.restoreBackup(selected.save, currentRaw ?? null);
+        return {
+          save: selected.save,
+          recoveredFrom: 'backup',
+          warnings: ['主存档校验失败，已从最近的有效事务备份恢复。']
+        };
+      }
+      this.clearEmergencyJournal(selected.save.revision);
       return {
-        save: current,
+        save: selected.save,
         recoveredFrom: 'primary',
         warnings: []
       };
     }
 
-    if (backup) {
-      backup.writerId = this.writerId;
-      this.nextRevision = backup.revision;
-      await this.restoreBackup(backup, currentRaw ?? null);
-      return {
-        save: backup,
-        recoveredFrom: 'backup',
-        warnings: ['主存档校验失败，已从最近的有效事务备份恢复。']
-      };
-    }
-
-    if (currentRaw || backupRaw) {
+    if (currentRaw || backupRaw || emergencyRaw) {
       const incompatible =
         isIncompatible(currentRaw ?? null) ||
-        isIncompatible(backupRaw ?? null);
+        isIncompatible(backupRaw ?? null) ||
+        isIncompatible(emergencyRaw);
       const diagnostic = JSON.stringify(
         {
           database: DATABASE_NAME,
           schemaExpected: SAVE_SCHEMA_VERSION,
           contentExpected: CONTENT_VERSION,
           current: currentRaw ?? null,
-          backup: backupRaw ?? null
+          backup: backupRaw ?? null,
+          emergency: emergencyRaw
         },
         null,
         2
@@ -335,8 +376,16 @@ export class IndexedDbSaveManager {
     next.updatedAt = new Date().toISOString();
     next.writerId = this.writerId;
     this.nextRevision = next.revision;
+    try {
+      localStorage.setItem(SAVE_KEYS.temporary, encodeSave(next));
+    } catch {
+      // IndexedDB remains authoritative when synchronous emergency storage is
+      // unavailable (for example, a strict private-browsing quota).
+    }
 
-    const committed = this.writeQueue.then(() => this.writeAtomic(next));
+    const committed = this.writeQueue
+      .then(() => this.writeAtomic(next))
+      .then(() => this.clearEmergencyJournal(next.revision));
     this.writeQueue = committed.catch(() => {});
     return {
       save: next,
@@ -402,6 +451,38 @@ export class IndexedDbSaveManager {
     }
     store.put(encodeSave(backup), CURRENT_KEY);
     await completed;
+  }
+
+  private async restoreEmergency(
+    emergency: GameSave,
+    previousCurrent: string | null
+  ): Promise<void> {
+    const transaction = this.database.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const completed = transactionDone(transaction);
+    if (previousCurrent) {
+      const previous = decodeSave(previousCurrent, this.writerId);
+      store.put(
+        previousCurrent,
+        previous ? BACKUP_KEY : `quarantine:${Date.now()}`
+      );
+    }
+    store.put(encodeSave(emergency), CURRENT_KEY);
+    await completed;
+  }
+
+  private clearEmergencyJournal(committedRevision: number): void {
+    try {
+      const pending = decodeSave(
+        localStorage.getItem(SAVE_KEYS.temporary),
+        this.writerId
+      );
+      if (pending && pending.revision <= committedRevision) {
+        localStorage.removeItem(SAVE_KEYS.temporary);
+      }
+    } catch {
+      // Best-effort cleanup; a verified stale journal is ignored on next load.
+    }
   }
 
   private async loadLegacySave(): Promise<GameSave | null> {

@@ -10,9 +10,9 @@ const CONTROL_KEYS = new Set([
   'r',
   'm',
   'escape',
-  '1',
-  '2',
-  '3',
+  'j',
+  'q',
+  'ctrl',
   'enter'
 ]);
 
@@ -21,6 +21,7 @@ function normalizeKey(event) {
   if (event.code.startsWith('Key')) return event.code.slice(3).toLowerCase();
   if (event.code.startsWith('Digit')) return event.code.slice(5);
   if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') return 'shift';
+  if (event.code === 'ControlLeft' || event.code === 'ControlRight') return 'ctrl';
   if (event.code === 'Escape') return 'escape';
   if (event.code === 'Enter' || event.code === 'NumpadEnter') return 'enter';
   return event.key.toLowerCase();
@@ -62,10 +63,24 @@ export class InputManager {
       canvas.requestPointerLock?.();
     });
 
+    canvas.addEventListener('pointerdown', (event) => {
+      if (!this.enabled || !this.isPointerLocked) return;
+      if (event.button === 0) this.pressed.add('attack');
+      if (event.button === 2) this.pressed.add('skill');
+    });
+    canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+
     document.addEventListener('mousemove', (event) => {
       if (!this.enabled || !this.isPointerLocked) return;
       this.mouseDelta.x += event.movementX || 0;
       this.mouseDelta.y += event.movementY || 0;
+    });
+
+    document.addEventListener('pointerlockchange', () => {
+      if (!this.isPointerLocked) {
+        this.mouseDelta.x = 0;
+        this.mouseDelta.y = 0;
+      }
     });
   }
 

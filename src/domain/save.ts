@@ -1,24 +1,22 @@
 import {
+  CHAPTER_ORDER,
   ENEMIES,
-  GROWTHS,
-  RELICS,
-  WEAPONS,
-  type EnemyDefinition,
-  type ProgressStep
+  PLAYER_COMBAT,
+  type ChapterProgress,
+  type EnemyId
 } from '../data/content';
-import type { Loadout } from './combat';
 
-export const SAVE_SCHEMA_VERSION = 3;
-export const CONTENT_VERSION = '1.0.0';
+export const SAVE_SCHEMA_VERSION = 4;
+export const CONTENT_VERSION = '0.3.0';
 export const SAVE_KEYS = {
+  primary: 'holy-shift.save.v4',
+  temporary: 'holy-shift.save.v4.tmp',
+  backup: 'holy-shift.save.v4.backup'
+} as const;
+export const LEGACY_SAVE_KEYS = {
   primary: 'holy-shift.save.v3',
   temporary: 'holy-shift.save.v3.tmp',
   backup: 'holy-shift.save.v3.backup'
-} as const;
-export const LEGACY_SAVE_KEYS = {
-  primary: 'holy-shift.save.v2',
-  temporary: 'holy-shift.save.v2.tmp',
-  backup: 'holy-shift.save.v2.backup'
 } as const;
 
 export interface GameSettings {
@@ -29,46 +27,34 @@ export interface GameSettings {
   keyGuideExpanded: boolean;
 }
 
+export interface PlayerSaveState {
+  hp: number;
+  stamina: number;
+  shift: number;
+}
+
+export interface ChapterFlags {
+  heardStudentPun: boolean;
+  heardBelieverPun: boolean;
+  fountainRestored: boolean;
+  elevatorSeen: boolean;
+}
+
 export interface GameSave {
-  schemaVersion: 3;
+  schemaVersion: 4;
   contentVersion: typeof CONTENT_VERSION;
   revision: number;
   updatedAt: string;
   writerId: string;
-  progress: ProgressStep;
-  loadout: Loadout;
-  defeated: {
-    sentry: boolean;
-    warden: boolean;
-    boss: boolean;
-    elite: boolean;
-  };
-  optionalMemento: boolean;
-  endingSeen: boolean;
-  checkpoint: SaveCheckpoint | null;
+  progress: ChapterProgress;
+  player: PlayerSaveState;
+  defeated: Record<EnemyId, boolean>;
+  flags: ChapterFlags;
+  checkpoint: null;
   consumedEvents: string[];
   playSeconds: number;
   settings: GameSettings;
 }
-
-export type SaveCheckpoint =
-  | {
-      kind: 'inBattle';
-      eventId: string;
-      battleId: EnemyDefinition['id'];
-      progressSnapshot: ProgressStep;
-      loadoutSnapshot: Loadout;
-    }
-  | {
-      kind: 'rewardPending';
-      eventId: string;
-      battleId: 'sentry' | 'warden';
-      required: ['weaponId'] | ['relicId', 'growthId'];
-    }
-  | {
-      kind: 'endingPending';
-      eventId: string;
-    };
 
 interface SaveEnvelope {
   checksum: string;
@@ -87,27 +73,8 @@ export interface LoadResult {
   warnings: string[];
 }
 
-const PROGRESS_STEPS = new Set<ProgressStep>([
-  'prologue',
-  'questAccepted',
-  'sentryDefeated',
-  'weaponChosen',
-  'wardenDefeated',
-  'relicChosen',
-  'growthChosen',
-  'bossDefeated',
-  'complete'
-]);
-const WEAPON_IDS = new Set<string>(WEAPONS.map((item) => item.id));
-const RELIC_IDS = new Set<string>(RELICS.map((item) => item.id));
-const GROWTH_IDS = new Set<string>(GROWTHS.map((item) => item.id));
-const ENEMY_IDS = new Set<string>(Object.keys(ENEMIES));
-
-function normalizeChoiceId(
-  value: unknown,
-  allowed: ReadonlySet<string>
-): string | null {
-  return typeof value === 'string' && allowed.has(value) ? value : null;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
 function createWriterId(): string {
@@ -134,20 +101,24 @@ export function createNewSave(writerId = createWriterId()): GameSave {
     revision: 0,
     updatedAt: new Date(0).toISOString(),
     writerId,
-    progress: 'prologue',
-    loadout: {
-      weaponId: null,
-      relicId: null,
-      growthId: null
+    progress: 'intro',
+    player: {
+      hp: PLAYER_COMBAT.maxHp,
+      stamina: PLAYER_COMBAT.maxStamina,
+      shift: 0
     },
     defeated: {
-      sentry: false,
-      warden: false,
-      boss: false,
-      elite: false
+      'wisp-a': false,
+      'wisp-b': false,
+      'wisp-c': false,
+      'approved-water-ghost': false
     },
-    optionalMemento: false,
-    endingSeen: false,
+    flags: {
+      heardStudentPun: false,
+      heardBelieverPun: false,
+      fountainRestored: false,
+      elevatorSeen: false
+    },
     checkpoint: null,
     consumedEvents: [],
     playSeconds: 0,
@@ -171,10 +142,6 @@ export function encodeSave(save: GameSave): string {
     payload
   };
   return JSON.stringify(envelope);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
 }
 
 function normalizeSettings(value: unknown): GameSettings {
@@ -201,13 +168,10 @@ function normalizeSettings(value: unknown): GameSettings {
   };
 }
 
-function normalizeLoadout(value: unknown): Loadout {
-  const loadout = isRecord(value) ? value : {};
-  return {
-    weaponId: normalizeChoiceId(loadout.weaponId, WEAPON_IDS),
-    relicId: normalizeChoiceId(loadout.relicId, RELIC_IDS),
-    growthId: normalizeChoiceId(loadout.growthId, GROWTH_IDS)
-  };
+function finiteResource(value: unknown, maximum: number, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(maximum, Math.max(0, value))
+    : fallback;
 }
 
 function normalizeEventId(value: unknown): string | null {
@@ -216,85 +180,51 @@ function normalizeEventId(value: unknown): string | null {
     : null;
 }
 
-function normalizeCheckpoint(value: unknown): SaveCheckpoint | null {
-  if (!isRecord(value)) return null;
-  const eventId = normalizeEventId(value.eventId);
-  if (!eventId) return null;
-
-  if (
-    value.kind === 'inBattle' &&
-    typeof value.battleId === 'string' &&
-    ENEMY_IDS.has(value.battleId) &&
-    typeof value.progressSnapshot === 'string' &&
-    PROGRESS_STEPS.has(value.progressSnapshot as ProgressStep)
-  ) {
-    return {
-      kind: 'inBattle',
-      eventId,
-      battleId: value.battleId as EnemyDefinition['id'],
-      progressSnapshot: value.progressSnapshot as ProgressStep,
-      loadoutSnapshot: normalizeLoadout(value.loadoutSnapshot)
-    };
-  }
-
-  if (
-    value.kind === 'rewardPending' &&
-    (value.battleId === 'sentry' || value.battleId === 'warden')
-  ) {
-    return {
-      kind: 'rewardPending',
-      eventId,
-      battleId: value.battleId,
-      required:
-        value.battleId === 'sentry'
-          ? ['weaponId']
-          : ['relicId', 'growthId']
-    };
-  }
-
-  if (value.kind === 'endingPending') {
-    return {
-      kind: 'endingPending',
-      eventId
-    };
-  }
-
-  return null;
-}
-
 export function migrateSave(raw: unknown, writerId: string): GameSave | null {
   if (!isRecord(raw)) return null;
-
-  const schemaVersion = raw.schemaVersion;
-  if (schemaVersion !== 1 && schemaVersion !== 2 && schemaVersion !== SAVE_SCHEMA_VERSION) {
-    return null;
-  }
   if (
-    schemaVersion === SAVE_SCHEMA_VERSION &&
-    raw.contentVersion !== CONTENT_VERSION
+    typeof raw.schemaVersion === 'number' &&
+    raw.schemaVersion > SAVE_SCHEMA_VERSION
   ) {
     return null;
   }
 
-  const progress = raw.progress;
-  if (typeof progress !== 'string' || !PROGRESS_STEPS.has(progress as ProgressStep)) {
-    return null;
-  }
-  const normalizedProgress: ProgressStep =
-    progress === 'relicChosen' ? 'wardenDefeated' : (progress as ProgressStep);
-  const normalizedLoadout = normalizeLoadout(raw.loadout);
-  if (progress === 'relicChosen') {
-    normalizedLoadout.relicId = null;
-    normalizedLoadout.growthId = null;
+  if (raw.schemaVersion !== SAVE_SCHEMA_VERSION) {
+    const migrated = createNewSave(writerId);
+    migrated.revision =
+      typeof raw.revision === 'number' && Number.isSafeInteger(raw.revision)
+        ? Math.max(0, raw.revision)
+        : 0;
+    migrated.playSeconds =
+      typeof raw.playSeconds === 'number' && Number.isFinite(raw.playSeconds)
+        ? Math.min(10_000_000, Math.max(0, raw.playSeconds))
+        : 0;
+    migrated.settings = normalizeSettings(raw.settings);
+    return migrated;
   }
 
+  if (raw.contentVersion !== CONTENT_VERSION) return null;
+  if (
+    typeof raw.progress !== 'string' ||
+    !CHAPTER_ORDER.includes(raw.progress as ChapterProgress)
+  ) {
+    return null;
+  }
+
+  const defaults = createNewSave(writerId);
   const defeated = isRecord(raw.defeated) ? raw.defeated : {};
+  const flags = isRecord(raw.flags) ? raw.flags : {};
+  const player = isRecord(raw.player) ? raw.player : {};
   const revision =
-    typeof raw.revision === 'number' && Number.isSafeInteger(raw.revision) && raw.revision >= 0
+    typeof raw.revision === 'number' &&
+    Number.isSafeInteger(raw.revision) &&
+    raw.revision >= 0
       ? raw.revision
       : 0;
   const playSeconds =
-    typeof raw.playSeconds === 'number' && Number.isFinite(raw.playSeconds) && raw.playSeconds >= 0
+    typeof raw.playSeconds === 'number' &&
+    Number.isFinite(raw.playSeconds) &&
+    raw.playSeconds >= 0
       ? Math.min(raw.playSeconds, 10_000_000)
       : 0;
 
@@ -310,17 +240,26 @@ export function migrateSave(raw: unknown, writerId: string): GameSave | null {
       typeof raw.writerId === 'string' && raw.writerId.length <= 128
         ? raw.writerId
         : writerId,
-    progress: normalizedProgress,
-    loadout: normalizedLoadout,
-    defeated: {
-      sentry: defeated.sentry === true,
-      warden: defeated.warden === true,
-      boss: defeated.boss === true,
-      elite: defeated.elite === true
+    progress: raw.progress as ChapterProgress,
+    player: {
+      hp: finiteResource(player.hp, PLAYER_COMBAT.maxHp, PLAYER_COMBAT.maxHp),
+      stamina: finiteResource(
+        player.stamina,
+        PLAYER_COMBAT.maxStamina,
+        PLAYER_COMBAT.maxStamina
+      ),
+      shift: finiteResource(player.shift, PLAYER_COMBAT.maxShift, 0)
     },
-    optionalMemento: raw.optionalMemento === true,
-    endingSeen: raw.endingSeen === true,
-    checkpoint: normalizeCheckpoint(raw.checkpoint),
+    defeated: Object.fromEntries(
+      (Object.keys(ENEMIES) as EnemyId[]).map((id) => [id, defeated[id] === true])
+    ) as Record<EnemyId, boolean>,
+    flags: {
+      heardStudentPun: flags.heardStudentPun === true,
+      heardBelieverPun: flags.heardBelieverPun === true,
+      fountainRestored: flags.fountainRestored === true,
+      elevatorSeen: flags.elevatorSeen === true
+    },
+    checkpoint: null,
     consumedEvents: Array.isArray(raw.consumedEvents)
       ? raw.consumedEvents
           .map(normalizeEventId)
@@ -362,28 +301,16 @@ export class SaveManager {
   load(): LoadResult {
     const warnings: string[] = [];
     const candidates = [
-      {
-        source: 'primary' as const,
-        save: decodeSave(this.storage.getItem(SAVE_KEYS.primary), this.writerId)
-      },
-      {
-        source: 'temporary' as const,
-        save: decodeSave(this.storage.getItem(SAVE_KEYS.temporary), this.writerId)
-      },
-      {
-        source: 'backup' as const,
-        save: decodeSave(this.storage.getItem(SAVE_KEYS.backup), this.writerId)
-      }
-    ].filter((candidate): candidate is { source: 'primary' | 'temporary' | 'backup'; save: GameSave } =>
-      candidate.save !== null
-    );
+      { source: 'primary' as const, save: decodeSave(this.storage.getItem(SAVE_KEYS.primary), this.writerId) },
+      { source: 'temporary' as const, save: decodeSave(this.storage.getItem(SAVE_KEYS.temporary), this.writerId) },
+      { source: 'backup' as const, save: decodeSave(this.storage.getItem(SAVE_KEYS.backup), this.writerId) }
+    ].filter((candidate): candidate is {
+      source: 'primary' | 'temporary' | 'backup';
+      save: GameSave;
+    } => candidate.save !== null);
 
     if (candidates.length === 0) {
-      if (
-        this.storage.getItem(SAVE_KEYS.primary) ||
-        this.storage.getItem(SAVE_KEYS.temporary) ||
-        this.storage.getItem(SAVE_KEYS.backup)
-      ) {
+      if (Object.values(SAVE_KEYS).some((key) => this.storage.getItem(key))) {
         warnings.push('检测到无法验证的存档，已安全创建新旅程；原始坏档未被当作有效进度使用。');
       }
       return {
@@ -396,7 +323,6 @@ export class SaveManager {
     candidates.sort((left, right) => right.save.revision - left.save.revision);
     const selected = candidates[0];
     selected.save.writerId = this.writerId;
-
     if (selected.source !== 'primary') {
       warnings.push(
         selected.source === 'temporary'
@@ -410,7 +336,6 @@ export class SaveManager {
         warnings.push('恢复成功，但浏览器拒绝写回主存档；本次会话仍可继续。');
       }
     }
-
     return {
       save: selected.save,
       recoveredFrom: selected.source,
@@ -421,44 +346,30 @@ export class SaveManager {
   save(current: GameSave): GameSave {
     const persisted = decodeSave(this.storage.getItem(SAVE_KEYS.primary), this.writerId);
     const next: GameSave = {
-      ...current,
+      ...structuredClone(current),
       schemaVersion: SAVE_SCHEMA_VERSION,
       contentVersion: CONTENT_VERSION,
       revision: Math.max(current.revision, persisted?.revision ?? 0) + 1,
       updatedAt: new Date().toISOString(),
-      writerId: this.writerId,
-      loadout: { ...current.loadout },
-      defeated: { ...current.defeated },
-      checkpoint: current.checkpoint
-        ? structuredClone(current.checkpoint)
-        : null,
-      consumedEvents: [...current.consumedEvents],
-      settings: { ...current.settings }
+      writerId: this.writerId
     };
-
     const serialized = encodeSave(next);
     this.storage.setItem(SAVE_KEYS.temporary, serialized);
     if (!decodeSave(this.storage.getItem(SAVE_KEYS.temporary), this.writerId)) {
       throw new Error('临时存档写入后校验失败。');
     }
-
     this.storage.setItem(SAVE_KEYS.primary, serialized);
     const verified = decodeSave(this.storage.getItem(SAVE_KEYS.primary), this.writerId);
     if (!verified || verified.revision !== next.revision) {
       throw new Error('主存档写入后校验失败。');
     }
-
-    if (persisted) {
-      this.storage.setItem(SAVE_KEYS.backup, encodeSave(persisted));
-    }
+    if (persisted) this.storage.setItem(SAVE_KEYS.backup, encodeSave(persisted));
     this.storage.removeItem(SAVE_KEYS.temporary);
     return next;
   }
 
   reset(): GameSave {
-    this.storage.removeItem(SAVE_KEYS.primary);
-    this.storage.removeItem(SAVE_KEYS.temporary);
-    this.storage.removeItem(SAVE_KEYS.backup);
+    Object.values(SAVE_KEYS).forEach((key) => this.storage.removeItem(key));
     return createNewSave(this.writerId);
   }
 

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { COLORS, MAP, PLAYER_HEIGHT } from '../data/mapConfig.js';
+import { MAP } from '../data/mapConfig.js';
+import { createOldPastor } from '../art/characters/oldPastor/createOldPastor.js';
 
 const MOVE_VECTOR = new THREE.Vector3();
 const STEP_VECTOR = new THREE.Vector3();
@@ -22,19 +22,6 @@ const VERTICAL_STATES = {
   JUMPING: 'jumping',
   FALLING: 'falling'
 };
-
-function colorGeometry(geometry, color, x, y, z) {
-  geometry.translate(x, y, z);
-  const vertexColor = new THREE.Color(color);
-  const colors = new Float32Array(geometry.attributes.position.count * 3);
-  for (let index = 0; index < colors.length; index += 3) {
-    colors[index] = vertexColor.r;
-    colors[index + 1] = vertexColor.g;
-    colors[index + 2] = vertexColor.b;
-  }
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  return geometry;
-}
 
 function pointInPolygon(x, z, points) {
   let inside = false;
@@ -408,7 +395,7 @@ function collidesAt(position, colliders = [], radius, height, options = {}) {
 export class Player extends THREE.Group {
   constructor() {
     super();
-    this.name = '守誓者';
+    this.name = '老牧师 · 玩家';
     this.collisionHeight = 1.78;
     this.collisionRadius = 0.35;
     this.walkSpeed = 5.2;
@@ -416,69 +403,27 @@ export class Player extends THREE.Group {
     this.didResetThisFrame = false;
     this.safetyResetCount = 0;
     this.lastSafetyMessage = '';
+    this.elapsed = 0;
+    this.movingThisFrame = false;
+    this.sprintingThisFrame = false;
+    this.attackAnimationTimer = 0;
+    this.attackAnimationDuration = 0.42;
+    this.castAnimationTimer = 0;
+    this.castAnimationDuration = 0.72;
+    this.hurtAnimationTimer = 0;
+    this.hurtAnimationDuration = 0.28;
+    this.dodgeTimer = 0;
+    this.dodgeCooldown = 0;
+    this.dodgeDirection = new THREE.Vector3();
+    this.dodgeSpeed = 16.5;
     this.resetPoint = new THREE.Vector3(
       MAP.playerReset.x,
       MAP.playerReset.y,
       MAP.playerReset.z
     );
     this.reset();
-
-    const playerMaterial = new THREE.MeshLambertMaterial({
-      color: 0xffffff,
-      vertexColors: true,
-      flatShading: true
-    });
-    const shadowMaterial = new THREE.MeshBasicMaterial({
-      color: 0x222222,
-      transparent: true,
-      opacity: 0.42
-    });
-
-    const footprint = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.025, 12), shadowMaterial);
-    footprint.name = 'Player 1.78m Scale Footprint';
-    footprint.position.y = 0.012;
-    this.add(footprint);
-
-    const playerGeometry = mergeGeometries([
-      colorGeometry(
-        new THREE.CylinderGeometry(0.2, 0.31, 1.18, 10),
-        COLORS.robe,
-        0,
-        0.59,
-        0
-      ),
-      colorGeometry(
-        new THREE.CylinderGeometry(0.34, 0.25, 0.16, 10),
-        COLORS.robeTrim,
-        0,
-        1.08,
-        0
-      ),
-      colorGeometry(
-        new THREE.SphereGeometry(0.25, 10, 8),
-        COLORS.skin,
-        0,
-        1.36,
-        0
-      ),
-      colorGeometry(
-        new THREE.ConeGeometry(0.29, 0.28, 10),
-        COLORS.playerHat,
-        0,
-        PLAYER_HEIGHT - 0.14,
-        0
-      ),
-      colorGeometry(
-        new THREE.BoxGeometry(0.04, 0.34, 0.03),
-        COLORS.robeTrim,
-        0,
-        0.78,
-        0.296
-      )
-    ]);
-    const body = new THREE.Mesh(playerGeometry, playerMaterial);
-    body.name = '守誓者低多边形角色批次';
-    this.add(body);
+    this.character = createOldPastor();
+    this.add(this.character);
   }
 
   reset() {
@@ -510,12 +455,33 @@ export class Player extends THREE.Group {
 
   update(delta, input, movementYaw = Math.PI, navigation = {}) {
     this.didResetThisFrame = false;
+    this.elapsed += delta;
+    this.attackAnimationTimer = Math.max(0, this.attackAnimationTimer - delta);
+    this.castAnimationTimer = Math.max(0, this.castAnimationTimer - delta);
+    this.hurtAnimationTimer = Math.max(0, this.hurtAnimationTimer - delta);
+    this.dodgeCooldown = Math.max(0, this.dodgeCooldown - delta);
+    this.movingThisFrame = false;
+    this.sprintingThisFrame = false;
     if (this.resetIfBelowSafeHeight()) {
       return;
     }
 
     this.updateMovement(delta, input, movementYaw, navigation);
     this.resetIfBelowSafeHeight();
+    this.character.userData.animate?.({
+      time: this.elapsed,
+      moving: this.movingThisFrame,
+      sprinting: this.sprintingThisFrame,
+      attackPhase: this.attackAnimationTimer > 0
+        ? 1 - this.attackAnimationTimer / this.attackAnimationDuration
+        : 0,
+      castPhase: this.castAnimationTimer > 0
+        ? 1 - this.castAnimationTimer / this.castAnimationDuration
+        : 0,
+      hurtPhase: this.hurtAnimationTimer > 0
+        ? 1 - this.hurtAnimationTimer / this.hurtAnimationDuration
+        : 0
+    });
   }
 
   updateMovement(delta, input, movementYaw = Math.PI, navigation = {}) {
@@ -535,15 +501,19 @@ export class Player extends THREE.Group {
       currentGround ||
       findWalkableGround(this.position.x, this.position.z, walkableSurfaces, this.position.y + MAX_STEP_HEIGHT);
 
-    if (forwardAmount === 0 && rightAmount === 0) {
+    const dodging = this.dodgeTimer > 0;
+    if (dodging) {
+      this.dodgeTimer = Math.max(0, this.dodgeTimer - delta);
+      MOVE_VECTOR.copy(this.dodgeDirection).multiplyScalar(this.dodgeSpeed * delta);
+    } else if (forwardAmount === 0 && rightAmount === 0) {
       return;
+    } else {
+      FORWARD.set(Math.sin(movementYaw), 0, Math.cos(movementYaw));
+      RIGHT.set(-FORWARD.z, 0, FORWARD.x);
+      MOVE_VECTOR.addScaledVector(FORWARD, forwardAmount);
+      MOVE_VECTOR.addScaledVector(RIGHT, rightAmount);
+      MOVE_VECTOR.normalize().multiplyScalar((input.isDown('shift') ? this.runSpeed : this.walkSpeed) * delta);
     }
-
-    FORWARD.set(Math.sin(movementYaw), 0, Math.cos(movementYaw));
-    RIGHT.set(-FORWARD.z, 0, FORWARD.x);
-    MOVE_VECTOR.addScaledVector(FORWARD, forwardAmount);
-    MOVE_VECTOR.addScaledVector(RIGHT, rightAmount);
-    MOVE_VECTOR.normalize().multiplyScalar((input.isDown('shift') ? this.runSpeed : this.walkSpeed) * delta);
 
     const movementLength = MOVE_VECTOR.length();
     const movementSteps = Math.max(1, Math.ceil(movementLength / MAX_HORIZONTAL_MOVE_STEP));
@@ -589,7 +559,48 @@ export class Player extends THREE.Group {
     if (!moved) {
       return;
     }
+    this.movingThisFrame = true;
+    this.sprintingThisFrame = dodging || input.isDown('shift');
     this.rotation.y = Math.atan2(MOVE_VECTOR.x, MOVE_VECTOR.z);
+  }
+
+  startDodge(input, movementYaw = Math.PI) {
+    if (this.dodgeCooldown > 0 || !this.grounded) return false;
+    const forwardAmount = (input.isDown('w') ? 1 : 0) - (input.isDown('s') ? 1 : 0);
+    const rightAmount = (input.isDown('d') ? 1 : 0) - (input.isDown('a') ? 1 : 0);
+    FORWARD.set(Math.sin(movementYaw), 0, Math.cos(movementYaw));
+    RIGHT.set(-FORWARD.z, 0, FORWARD.x);
+    this.dodgeDirection
+      .copy(FORWARD)
+      .multiplyScalar(forwardAmount || (rightAmount === 0 ? 1 : 0))
+      .addScaledVector(RIGHT, rightAmount)
+      .normalize();
+    this.dodgeTimer = 0.28;
+    this.dodgeCooldown = 0.72;
+    return true;
+  }
+
+  faceYaw(yaw) {
+    if (Number.isFinite(yaw)) this.rotation.y = yaw;
+  }
+
+  triggerAttackAnimation(duration = 0.42) {
+    this.attackAnimationDuration = Math.max(0.1, duration);
+    this.attackAnimationTimer = this.attackAnimationDuration;
+  }
+
+  triggerCastAnimation(duration = 0.72) {
+    this.castAnimationDuration = Math.max(0.1, duration);
+    this.castAnimationTimer = this.castAnimationDuration;
+  }
+
+  triggerHurtAnimation(duration = 0.28) {
+    this.hurtAnimationDuration = Math.max(0.1, duration);
+    this.hurtAnimationTimer = this.hurtAnimationDuration;
+  }
+
+  get invulnerable() {
+    return this.dodgeTimer > 0.035;
   }
 
   resolveMovementWithSlide(nextPosition, currentGround, walkableSurfaces, colliders) {

@@ -1,12 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-const ACTIONS = {
-  attack: '[data-action="combat"][data-value="attack"]',
-  defend: '[data-action="combat"][data-value="defend"]',
-  holy: '[data-action="combat"][data-value="holy"]'
-};
-
-async function clickWithoutGpuStall(locator) {
+async function fastClick(locator) {
   await expect(locator).toBeVisible();
   await locator.evaluate((element) => element.click());
 }
@@ -18,29 +12,28 @@ async function teleportAndInteract(page, id) {
         (targetId) => window.__holyShiftTest?.teleportTo(targetId) ?? false,
         id
       ),
-    { timeout: 12_000 }
+    { timeout: 15_000 }
   ).toBe(true);
-  const prompt = page.locator('[data-ui="interaction"]');
-  await expect(prompt).toBeVisible();
-  await clickWithoutGpuStall(prompt);
+  await expect(page.locator('[data-ui="interaction"]')).toBeVisible();
+  await fastClick(page.locator('[data-ui="interaction"]'));
 }
 
-async function winBattle(page, actions) {
-  await expect(page.locator('[data-ui="combat"]')).toBeVisible();
-  for (const action of actions) {
-    const button = page.locator(ACTIONS[action]);
-    await expect(button).toBeEnabled();
-    await button.evaluate((element) => element.click());
+async function advanceDialogue(page, lineCount) {
+  for (let index = 0; index < lineCount; index += 1) {
+    await fastClick(page.locator('[data-ui="dialogue-button"]'));
   }
-  await expect(page.getByRole('heading', { name: '试炼通过' })).toBeVisible();
-  await clickWithoutGpuStall(page.locator('[data-ui="combat-result-button"]'));
-  await expect(page.locator('[data-ui="dialogue"]')).toBeVisible();
-  await clickWithoutGpuStall(page.locator('[data-ui="dialogue-button"]'));
 }
 
-test('completes the main story, optional route, rewards, boss mechanic, and ending', async ({
+async function expectProgress(page, progress) {
+  await expect.poll(
+    () => page.evaluate(() => window.__holyShiftTest.snapshot().progress),
+    { timeout: 15_000 }
+  ).toBe(progress);
+}
+
+test('completes the real-time first chapter and persists its world state', async ({
   page
-}) => {
+}, testInfo) => {
   test.setTimeout(240_000);
   const runtimeErrors = [];
   page.on('console', (message) => {
@@ -49,57 +42,107 @@ test('completes the main story, optional route, rewards, boss mechanic, and endi
   page.on('pageerror', (error) => runtimeErrors.push(error.message));
 
   await page.goto('/?e2e=1');
-  await clickWithoutGpuStall(page.getByRole('button', { name: '开始新旅程' }));
+  await fastClick(page.getByRole('button', { name: '开始新旅程' }));
   await expect.poll(
     () => page.evaluate(() => Boolean(window.__holyShiftTest))
   ).toBe(true);
 
-  await teleportAndInteract(page, 'npc');
-  await clickWithoutGpuStall(page.getByRole('button', { name: '听取使命' }));
-  await clickWithoutGpuStall(page.getByRole('button', { name: '接受使命' }));
-  await expect(page.getByText('沿朝圣径击败蚀誓守卫', { exact: true })).toBeVisible();
-
-  await teleportAndInteract(page, 'sentry');
-  await winBattle(page, ['attack', 'defend', 'holy']);
-
-  await teleportAndInteract(page, 'weaponShrine');
-  await clickWithoutGpuStall(page.getByRole('button', { name: /晨刃/ }));
-  await expect(page.locator('[data-ui="equipment"]')).toContainText('晨刃');
-
-  await teleportAndInteract(page, 'warden');
-  await winBattle(page, ['attack', 'defend', 'holy', 'attack']);
-
-  await teleportAndInteract(page, 'relicShrine');
-  await clickWithoutGpuStall(page.getByRole('button', { name: /生命护符/ }));
-  await clickWithoutGpuStall(page.getByRole('button', { name: /坚韧/ }));
-  await clickWithoutGpuStall(
-    page.getByRole('button', { name: '确认并保存两项选择' })
-  );
-  await expect(page.locator('[data-ui="equipment"]')).toContainText('生命护符');
-
-  await teleportAndInteract(page, 'elite');
-  await winBattle(page, ['attack', 'defend', 'holy', 'attack', 'defend', 'holy']);
+  await teleportAndInteract(page, 'student');
+  await advanceDialogue(page, 2);
   await expect.poll(
-    () => page.evaluate(() => window.__holyShiftTest.snapshot().optionalMemento)
+    () =>
+      page.evaluate(
+        () => window.__holyShiftTest.snapshot().flags.heardStudentPun
+      )
   ).toBe(true);
 
-  await teleportAndInteract(page, 'boss');
-  await expect(page.getByText(/连续三次普通攻击将触发致命反噬/)).toBeVisible();
-  await winBattle(page, ['attack', 'defend', 'holy', 'attack', 'attack']);
+  await teleportAndInteract(page, 'pastorSenior');
+  await advanceDialogue(page, 3);
+  await expectProgress(page, 'inspectFountain');
 
-  await teleportAndInteract(page, 'npc');
-  await clickWithoutGpuStall(page.getByRole('button', { name: '见证复明' }));
-  await expect(page.getByText(/圣堂已复明/)).toBeVisible();
+  await teleportAndInteract(page, 'fountain');
+  await advanceDialogue(page, 2);
+  await expectProgress(page, 'clearWisps');
+  await expect(page.locator('[data-ui="combat"]')).toHaveCount(0);
+  await expect(page.locator('#game-canvas')).toBeVisible();
+
+  expect(
+    await page.evaluate(() => window.__holyShiftTest.teleportToEnemy('wisp-a'))
+  ).toBe(true);
+  const hpBefore = await page.evaluate(
+    () => window.__holyShiftTest.snapshot().enemies['wisp-a'].hp
+  );
+  await page.keyboard.press('KeyJ');
   await expect.poll(
-    () => page.evaluate(() => window.__holyShiftTest.snapshot().progress)
-  ).toBe('complete');
+    () =>
+      page.evaluate(
+        () => window.__holyShiftTest.snapshot().enemies['wisp-a'].hp
+      ),
+    { timeout: 8000 }
+  ).toBeLessThan(hpBefore);
+  await testInfo.attach('real-time-combat.json', {
+    body: JSON.stringify(
+      await page.evaluate(() => window.__holyShiftTest.snapshot()),
+      null,
+      2
+    ),
+    contentType: 'application/json'
+  });
+
+  for (const id of ['wisp-a', 'wisp-b', 'wisp-c']) {
+    await page.evaluate(
+      (enemyId) => window.__holyShiftTest.defeatEnemy(enemyId),
+      id
+    );
+  }
+  await expectProgress(page, 'traceSacredGlyph');
+
+  await teleportAndInteract(page, 'pingu');
+  await advanceDialogue(page, 4);
+  await expectProgress(page, 'consultLin');
+
+  await teleportAndInteract(page, 'linZhenyin');
+  await advanceDialogue(page, 4);
+  await expectProgress(page, 'defeatWaterGhost');
+  await expect(page.locator('[data-ui="boss-bar"]')).toBeVisible();
+  await expect(page.locator('[data-ui="boss-name"]')).toHaveText('已审批水鬼');
+  await expect(page.locator('#game-canvas')).toBeVisible();
+
+  await page.evaluate(() =>
+    window.__holyShiftTest.defeatEnemy('approved-water-ghost')
+  );
+  await expectProgress(page, 'restoreFountain');
+  await page.evaluate(() => window.__holyShiftTest.useShiftAtFountain());
+  await expectProgress(page, 'inspectElevator');
+  await advanceDialogue(page, 2);
+  await expect.poll(
+    () =>
+      page.evaluate(
+        () => window.__holyShiftTest.snapshot().flags.fountainRestored
+      )
+  ).toBe(true);
+
+  await teleportAndInteract(page, 'elevator');
+  await expect(page.locator('[data-ui="dialogue-text"]')).toContainText(
+    '191F / SHIFT'
+  );
+  await advanceDialogue(page, 4);
+  await expectProgress(page, 'complete');
   expect(runtimeErrors).toEqual([]);
 
   await page.reload();
-  await expect(page.getByRole('button', { name: '继续旅程' })).toBeVisible();
-  await expect(page.locator('[data-ui="save-summary"]')).toContainText('圣堂已复明');
-  await clickWithoutGpuStall(page.getByRole('button', { name: '继续旅程' }));
-  await expect(page.getByText('圣堂已复明；可继续探索或重开旅程', {
-    exact: true
-  })).toBeVisible();
+  await expect(page.getByRole('button', { name: '继续第一章' })).toBeVisible();
+  await expect(page.locator('[data-ui="save-summary"]')).toContainText(
+    '第一章完成'
+  );
+  await fastClick(page.getByRole('button', { name: '继续第一章' }));
+  await expect(page.locator('[data-ui="objective"]')).toHaveText(
+    '第一章完成 · 神圣秩序暂时归位'
+  );
+  await expect.poll(
+    () =>
+      page.evaluate(
+        () => window.__holyShiftTest.snapshot().flags.fountainRestored
+      )
+  ).toBe(true);
 });

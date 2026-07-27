@@ -3,6 +3,7 @@ const NOTES = {
   attack: [160, 110],
   defend: [280, 220],
   holy: [520, 780, 1040],
+  dodge: [310, 225],
   hurt: [120, 82],
   victory: [392, 523, 659],
   defeat: [196, 147, 98],

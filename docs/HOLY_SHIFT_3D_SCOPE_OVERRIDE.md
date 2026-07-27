@@ -1,5 +1,7 @@
 # Holy Shift 1.0：3D 范围覆盖与实施决定
 
+> **已废止的历史决定：** 本文件中的独立回合制战斗与旧章节内容已被 v0.3 的场景内实时动作战斗替代。当前实现约束只以 `HOLY_SHIFT_WORLD_BIBLE_V0.3.md` 和 `HOLY_SHIFT_IMPLEMENTATION_V0.3.md` 为准。
+
 > 决定日期：`2026-07-27`
 >
 > 工作分支：`dev`

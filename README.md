@@ -1,25 +1,43 @@
 # Holy Shift
 
-`Holy Shift（圣痕迁跃）` 是一款面向现代桌面浏览器的简体中文 3D RPG。玩家可在第一人称与第三人称间切换，探索暮光圣岛，并通过可见敌人意图的确定性回合制战斗完成一段完整主线。
+《Holy Shift》是一款发生在环水小岛“师老牧镇”的原创 3D 动作 RPG。玩家扮演私募教堂师牧会会长“老牧师”，在高级、神圣、干净但制度离谱的神圣广场处理“圣水变生水”的 Holy Shift 概念错位。
 
 生产入口：<https://qt.fengche.ai/holyshift/>
 
+当前 `v0.3` 是第一章完整纵向切片，开放神圣广场、圣水池与私募教堂入口；它不是全岛开放世界。
+
+## 第一章
+
+玩家可以持续自由移动并在原场景内完成：
+
+1. 与牧司学姐确认异常。
+2. 调查圣水池。
+3. 实时击败三只“生水泡影”。
+4. 向 Pingu 核对红肠供应链备案。
+5. 向林镇阴确认 Holy Shift 旧案。
+6. 实时击败“已审批水鬼”。
+7. 把错位的“圣”移回圣水。
+8. 在私募教堂入口发现 `191F / SHIFT`。
+
+战斗不会切进按钮回合屏；攻击、闪避、受击、敌人追击和 Holy Shift 均发生在可移动的 3D 世界中。
+
 ## 操作
 
-| 按键 | 功能 |
+| 输入 | 功能 |
 |---|---|
 | `W A S D` | 移动 |
 | 鼠标 / 点击画面 | 观察 / 锁定鼠标 |
 | `Shift` | 疾跑 |
 | `Space` | 跳跃 |
-| `E` | 交互 |
+| 鼠标左键 / `J` | 手杖连击 |
+| 鼠标右键 / `Q` | Holy Shift |
+| `Ctrl` | 闪避 |
+| `E` | 调查 / 交谈 |
 | `V` | 第一 / 第三人称切换 |
-| `R` | 返回最近的安全检查点 |
-| `M` | 静音 |
-| `Esc` | 释放鼠标并打开暂停设置 |
-| `1 / 2 / 3` | 战斗中选择攻击 / 防御 / 圣术 |
+| `R` | 返回最近安全点 |
+| `Esc` | 暂停 / 设置 |
 
-游戏内右下角也有常驻、可收起的键位说明。视口小于 `640×360` 时会给出明确阻断提示。
+游戏内右下角有简洁常驻战斗键位，左下角有可收起的完整键位卡。`640×360` 及以上视口不会遮挡目标、准星或关键操作。
 
 ## 本地运行
 
@@ -47,53 +65,57 @@ npm run test
 npm run build
 npm run e2e
 npm run e2e:cross-browser
-npm run check
 ```
 
-- Vitest 覆盖战斗公式、8 种 Boss 配装、剧情字数、存档校验/迁移，以及真实世界碰撞扫掠。
-- Playwright 覆盖 3D 启动、移动、双视角、暂停、安全复位、完整主线与支线、IndexedDB 恢复和 Web Locks 多标签页互斥。
-- Linux 无界面环境中的 Firefox WebGL2 验证使用虚拟显示器：
+Linux 无界面环境的 Firefox 通常没有可用 WebGL 驱动，需在虚拟显示器中以有头模式验证：
 
 ```bash
-PW_FIREFOX_HEADED=1 xvfb-run -a npx playwright test --project=firefox
+xvfb-run -a env PW_FIREFOX_HEADED=1 npm run e2e:firefox
 ```
 
-浏览器测试中的本地流程桥仅在主机名为 `localhost`、`127.0.0.1` 或 `::1` 且 URL 显式带 `?e2e=1` 时创建；生产域名不会暴露该接口。
+本地 E2E 流程桥只有在回环主机且 URL 显式包含 `?e2e=1` 时才会创建；生产域名不会暴露该接口。
 
-## 架构与性能
+## 模块结构
 
-- Three.js WebGL2：程序化低多边形世界，不加载外部贴图、模型、字体或音频资产。
-- DOM UI：HUD、任务、对话、奖励、战斗、设置和可访问性播报。
-- 确定性领域层：战斗、装备与成长数据和渲染解耦。
-- 玩家碰撞：固定圆柱近似体、水平子步进、轴向滑动、地面/坡度/台阶检查和非法位置自动回退。
-- 相机碰撞：第三人称射线缩距；第一人称隐藏角色模型。
-- 渲染策略：关闭实时阴影与后处理，静态场景批处理、重复装饰实例化；自动画质从流畅优先的安全像素比起步，按持续 p95 帧时间升降清晰度。
-- 当前生产构建关键资源 gzip 合计远低于 `2.5 MB` 预算；准确数字以每次 `npm run build` 输出为准。
+- `src/art/materials`：共享色板与材质。
+- `src/art/modeling`：建模原语、拱券、饰条与批处理工具。
+- `src/art/characters/<character>`：老牧师、Pingu、林镇阴、牧司学姐与群众的独立模型。
+- `src/art/enemies`：生水泡影与已审批水鬼。
+- `src/art/architecture`：神圣广场、圣水池、私募教堂与远景城市。
+- `src/art/props`：公告牌、长椅、路灯、签到机与红肠补给车。
+- `src/gameplay/combat`：场景内实时战斗、判定、受击与敌人 AI。
+- `src/gameplay/quests`：第一章状态机。
+- `src/world/collision`：碰撞体工厂；`src/world/MushiTownWorld.js` 负责世界拼装。
+- `src/domain`：实时战斗纯函数与版本化存档。
+- `src/ui`：HUD、目标、对话、设置与操作说明。
 
-## 存档模型
+## 流畅度与防卡死
 
-存档不上传服务器，只保存在当前浏览器的 IndexedDB：
+- 重复铺装、窗格、栏杆与灯具使用实例化；静态建筑和刚性角色按材质/顶点色批处理。
+- 关闭动态阴影和后处理；自动画质依据持续 P95 帧耗时调整像素比。
+- 无法识别 GPU 名称但检测到持续慢帧时，会自动切换轻量铺地、简化网格与 Lambert 光照材质。
+- 玩家使用固定圆柱近似体、水平子步进与墙角滑动；低帧率疾跑、闪避不会一步穿墙。
+- 第三人称相机遇到实体会回缩；第一人称隐藏主角身体。
+- 越界、坠落、非有限坐标或实体重叠会回到当前章节安全点。
+- 自动测试覆盖所有剧情检查点、交互安全环、敌人出生点、低帧率薄墙、硬墙角和 `600+` 条确定性障碍扫掠路线。
 
-- schema 与内容版本校验、FNV-1a 完整性校验；
-- `current` 与 `backup` 在单个 `readwrite` 事务中更新；
-- 坏主档自动从有效备份恢复，双档损坏或未来版本会阻止覆盖并提供诊断/确认重置；
-- 战斗前写入 `inBattle` 检查点，刷新后以同一敌人和序列起点重开；
-- 奖励与结局使用唯一事件 ID，避免重复结算；
-- Web Locks 保证同一来源只有一个主写标签页，关闭后才允许另一标签接管。
+## 存档
+
+进度只保存在当前浏览器，不上传服务器：
+
+- IndexedDB `current` / `backup` 原子更新；
+- 同步紧急日志保护“保存后立刻刷新”的最新进度；
+- schema、内容版本与完整性校验；
+- 坏主档自动恢复，双档损坏时阻止覆盖并提供确认重置；
+- Web Locks 保证同一来源只有一个写入标签页，并处理刚关闭标签页的接管竞态。
 
 清除站点数据会永久删除本地进度。
 
-## 部署与回滚
+## 文档
 
-`.github/workflows/verify-dev.yml` 只在 `dev` 校验并保存经过验证的 `dist/` 构建产物。实际生产入口由 Nginx 的 `/holyshift/` 路径提供静态文件，受审配置片段见 `deploy/nginx-holyshift.locations.conf`。
+- [世界观 v0.3](docs/HOLY_SHIFT_WORLD_BIBLE_V0.3.md)
+- [第一章实现基线 v0.3](docs/HOLY_SHIFT_IMPLEMENTATION_V0.3.md)
+- [候选发布验证](docs/RELEASE_VALIDATION_2026-07-27.md)
+- [第三方许可](THIRD_PARTY_NOTICES.md)
 
-部署必须：
-
-1. 确认当前分支为 `dev` 且 `npm run check`、目标 E2E 通过。
-2. 从同一提交执行 `npm ci && npm run build`。
-3. 原子切换 `/holyshift/` 指向该提交构建或同步到版本化发布目录。
-4. 执行 `nginx -t`、重载，并从公网 URL 校验 HTML、JS、CSS、缓存头与完整流程。
-
-回滚时把 `/holyshift/` 恢复到上一个版本化构建，执行 `nginx -t && nginx -s reload`，再验证公网入口。不要用开发服务器替代生产静态部署。
-
-需求基线见 [docs/HOLY_SHIFT_WEB_RPG_POSITIONING.md](docs/HOLY_SHIFT_WEB_RPG_POSITIONING.md)，3D 覆盖决定见 [docs/HOLY_SHIFT_3D_SCOPE_OVERRIDE.md](docs/HOLY_SHIFT_3D_SCOPE_OVERRIDE.md)，候选验证见 [docs/RELEASE_VALIDATION_2026-07-27.md](docs/RELEASE_VALIDATION_2026-07-27.md)，第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+旧版世界观、回合制产品定位与旧 Gate 草案仅保留为历史记录，不再构成当前实现要求。

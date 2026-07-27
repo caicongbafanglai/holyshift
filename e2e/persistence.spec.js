@@ -11,16 +11,21 @@ async function startNew(page, testBridge = false) {
   await expect(page.locator('[data-ui="start-screen"]')).toHaveClass(/is-hidden/);
 }
 
-async function teleport(page, id) {
+async function teleportAndInteract(page, id) {
   await expect.poll(
-    () => page.evaluate(() => Boolean(window.__holyShiftTest))
+    () =>
+      page.evaluate(
+        (targetId) => window.__holyShiftTest?.teleportTo(targetId) ?? false,
+        id
+      )
   ).toBe(true);
-  expect(
-    await page.evaluate(
-      (targetId) => window.__holyShiftTest.teleportTo(targetId),
-      id
-    )
-  ).toBe(true);
+  await fastClick(page.locator('[data-ui="interaction"]'));
+}
+
+async function advanceDialogue(page, count) {
+  for (let index = 0; index < count; index += 1) {
+    await fastClick(page.locator('[data-ui="dialogue-button"]'));
+  }
 }
 
 async function overwriteIndexedDb(page, entries) {
@@ -44,7 +49,7 @@ async function overwriteIndexedDb(page, entries) {
   }, entries);
 }
 
-test('uses an exclusive Web Lock and permits takeover only after the writer closes', async ({
+test('uses an exclusive Web Lock and permits takeover after the writer closes', async ({
   context,
   page
 }) => {
@@ -58,47 +63,65 @@ test('uses an exclusive Web Lock and permits takeover only after the writer clos
   await page.close({ runBeforeUnload: true });
   await secondPage.reload();
   await expect(
-    secondPage.getByRole('button', { name: '继续旅程' })
+    secondPage.getByRole('button', { name: '继续第一章' })
   ).toBeVisible();
 });
 
-test('refreshing an active battle restarts the same deterministic fight', async ({
+test('refreshing a live encounter restores its safe deterministic wave state', async ({
   page
 }) => {
   await startNew(page, true);
-  await teleport(page, 'npc');
-  await fastClick(page.locator('[data-ui="interaction"]'));
-  await fastClick(page.getByRole('button', { name: '听取使命' }));
-  await fastClick(page.getByRole('button', { name: '接受使命' }));
+  await teleportAndInteract(page, 'pastorSenior');
+  await advanceDialogue(page, 3);
+  await expect.poll(
+    () => page.evaluate(() => window.__holyShiftTest.snapshot().progress)
+  ).toBe('inspectFountain');
+  await teleportAndInteract(page, 'fountain');
+  await advanceDialogue(page, 2);
+  await expect.poll(
+    () => page.evaluate(() => window.__holyShiftTest.snapshot().progress)
+  ).toBe('clearWisps');
 
-  await teleport(page, 'sentry');
-  await fastClick(page.locator('[data-ui="interaction"]'));
-  await expect(page.locator('[data-ui="combat"]')).toBeVisible();
+  expect(
+    await page.evaluate(() => window.__holyShiftTest.teleportToEnemy('wisp-a'))
+  ).toBe(true);
+  await page.keyboard.press('KeyJ');
+  await expect.poll(
+    () =>
+      page.evaluate(
+        () => window.__holyShiftTest.snapshot().enemies['wisp-a'].hp
+      )
+  ).toBeLessThan(48);
 
   await page.reload();
-  await fastClick(page.getByRole('button', { name: '继续旅程' }));
-  await expect(page.locator('[data-ui="combat"]')).toBeVisible();
-  await expect(page.locator('[data-ui="round"]')).toHaveText('1');
-  await expect(page.locator('[data-ui="combat-player-hp"]')).toHaveText('12 / 12');
-  await expect(page.locator('[data-ui="combat-enemy-hp"]')).toHaveText('10 / 10');
+  await fastClick(page.getByRole('button', { name: '继续第一章' }));
+  await expect.poll(
+    () => page.evaluate(() => window.__holyShiftTest.snapshot().progress)
+  ).toBe('clearWisps');
+  await expect.poll(
+    () =>
+      page.evaluate(
+        () => window.__holyShiftTest.snapshot().enemies['wisp-a']
+      )
+  ).toMatchObject({ hp: 48, visible: true });
 });
 
 test('recovers a corrupt current record, then blocks and safely resets when both copies fail', async ({
   page
 }) => {
   await startNew(page, true);
-  await teleport(page, 'npc');
-  await fastClick(page.locator('[data-ui="interaction"]'));
-  await fastClick(page.getByRole('button', { name: '听取使命' }));
-  await fastClick(page.getByRole('button', { name: '接受使命' }));
+  await teleportAndInteract(page, 'pastorSenior');
+  await advanceDialogue(page, 3);
   await expect(
-    page.getByRole('status').filter({ hasText: '进度已自动保存。' })
+    page.getByRole('status').filter({ hasText: '主线进度已自动保存' })
   ).toBeVisible();
 
   await overwriteIndexedDb(page, { current: '{"tampered":true}' });
   await page.reload();
   await expect(
-    page.getByRole('status').filter({ hasText: '主存档校验失败' })
+    page
+      .getByRole('status')
+      .filter({ hasText: /主存档校验失败|同步紧急日志恢复/ })
   ).toBeVisible();
 
   await overwriteIndexedDb(page, {
@@ -119,6 +142,6 @@ test('recovers a corrupt current record, then blocks and safely resets when both
     page.getByRole('button', { name: '开始新旅程' })
   ).toBeVisible();
   await expect(
-    page.getByRole('button', { name: '继续旅程' })
+    page.getByRole('button', { name: '继续第一章' })
   ).toBeHidden();
 });

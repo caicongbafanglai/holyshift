@@ -1,5 +1,7 @@
 # Gate 01：Holy Shift 1.0 MVP 范围锁定章程
 
+> **历史未启动草案：** 候选范围已经被 v0.3 替代，本章程未进入 `READY`，不得被引用为当前产品或发布 Gate。当前基线见 `../../HOLY_SHIFT_WORLD_BIBLE_V0.3.md` 与 `../../HOLY_SHIFT_IMPLEMENTATION_V0.3.md`。
+
 > 章程版本：`0.1-draft`
 >
 > 状态：`DRAFT`（未达到 `READY`，正式评审尚未启动）

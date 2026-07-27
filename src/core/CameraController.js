@@ -16,7 +16,7 @@ const DIRECTION = new THREE.Vector3();
 export class CameraController {
   constructor(container) {
     this.container = container;
-    this.camera = new THREE.PerspectiveCamera(FOV, 1, 0.07, 260);
+    this.camera = new THREE.PerspectiveCamera(FOV, 1, 0.07, 1350);
     this.camera.name = 'third-person-camera';
     this.yaw = Math.PI;
     this.pitch = 0.08;

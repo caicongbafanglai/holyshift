@@ -16,6 +16,7 @@ async function visibleRectangles(page) {
       objective: '.objective',
       view: '.view-pill',
       guide: '.key-guide',
+      combatKeys: '.combat-keys',
       crosshair: '.crosshair'
     };
     return Object.fromEntries(
@@ -60,6 +61,9 @@ test('the permanent control guide leaves critical view and HUD regions unobstruc
     expect(intersects(boxes.guide, boxes.crosshair)).toBe(false);
     expect(intersects(boxes.guide, boxes.hud)).toBe(false);
     expect(intersects(boxes.guide, boxes.view)).toBe(false);
+    expect(intersects(boxes.combatKeys, boxes.objective)).toBe(false);
+    expect(intersects(boxes.combatKeys, boxes.crosshair)).toBe(false);
+    expect(intersects(boxes.combatKeys, boxes.hud)).toBe(false);
   }
 
   await expect(page.locator('.viewport-warning')).not.toBeVisible();
@@ -67,7 +71,7 @@ test('the permanent control guide leaves critical view and HUD regions unobstruc
     .locator('[data-ui="guide-body"]')
     .innerText();
   expect(visibleGuideText).toContain('W A S D');
-  expect(visibleGuideText).toContain('交互');
+  expect(visibleGuideText).toContain('调查 / 交谈');
   expect(visibleGuideText).toContain('第一 / 第三人称');
   expect(visibleGuideText).toContain('暂停 / 设置');
 });

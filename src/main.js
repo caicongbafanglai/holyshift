@@ -97,10 +97,12 @@ async function bootstrap() {
     game.start();
     performance.mark('hs-interactive');
     window.__holyShiftBuild = Object.freeze({
-      version: '1.0.0-dev',
+      version: '0.3.0-dev',
       branch: 'dev',
       renderer: 'three-webgl2',
-      persistence: 'indexeddb-web-locks'
+      persistence: 'indexeddb-web-locks',
+      world: '师老牧镇',
+      combat: 'real-time-world-action'
     });
   } catch (error) {
     console.error('Holy Shift failed to start', error);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CONTENT_VERSION,
   SAVE_KEYS,
   SaveManager,
   checksumPayload,
@@ -25,20 +26,20 @@ class MemoryStorage {
   }
 }
 
-function envelope(save: GameSave) {
+function envelope(save: unknown) {
   const payload = JSON.stringify(save);
   return JSON.stringify({ payload, checksum: checksumPayload(payload) });
 }
 
-describe('transactional local save', () => {
-  it('round-trips a verified save and increments revisions', () => {
+describe('transactional v0.3 local save', () => {
+  it('round-trips a verified action-RPG save and increments revisions', () => {
     const storage = new MemoryStorage();
     const manager = new SaveManager(storage, 'tab-a');
     const first = manager.save(createNewSave('tab-a'));
-    const second = manager.save({ ...first, progress: 'questAccepted' });
+    const second = manager.save({ ...first, progress: 'inspectFountain' });
 
     expect(second.revision).toBe(2);
-    expect(manager.load().save.progress).toBe('questAccepted');
+    expect(manager.load().save.progress).toBe('inspectFountain');
     expect(manager.load().recoveredFrom).toBe('primary');
   });
 
@@ -46,24 +47,28 @@ describe('transactional local save', () => {
     const storage = new MemoryStorage();
     const manager = new SaveManager(storage, 'tab-a');
     const primary = manager.save(createNewSave('tab-a'));
-    const interrupted = {
+    const interrupted: GameSave = {
       ...primary,
       revision: primary.revision + 1,
-      progress: 'weaponChosen' as const
+      progress: 'consultLin'
     };
     storage.setItem(SAVE_KEYS.temporary, envelope(interrupted));
 
     const result = manager.load();
 
     expect(result.recoveredFrom).toBe('temporary');
-    expect(result.save.progress).toBe('weaponChosen');
+    expect(result.save.progress).toBe('consultLin');
     expect(result.warnings[0]).toContain('事务副本');
   });
 
-  it('falls back to backup when primary checksum is invalid', () => {
+  it('falls back to a valid backup when the primary checksum is invalid', () => {
     const storage = new MemoryStorage();
     const manager = new SaveManager(storage, 'tab-a');
-    const backup = { ...createNewSave('tab-a'), revision: 7, progress: 'relicChosen' as const };
+    const backup: GameSave = {
+      ...createNewSave('tab-a'),
+      revision: 7,
+      progress: 'restoreFountain'
+    };
     storage.setItem(SAVE_KEYS.primary, '{"checksum":"bad","payload":"{}"}');
     storage.setItem(SAVE_KEYS.backup, envelope(backup));
 
@@ -71,15 +76,13 @@ describe('transactional local save', () => {
 
     expect(result.recoveredFrom).toBe('backup');
     expect(result.save.revision).toBe(7);
-    expect(result.save.progress).toBe('wardenDefeated');
-    expect(result.save.loadout.relicId).toBeNull();
+    expect(result.save.progress).toBe('restoreFountain');
   });
 
   it('never reports a failed storage write as successful', () => {
     const storage = new MemoryStorage();
     const manager = new SaveManager(storage, 'tab-a');
     storage.failWrites = true;
-
     expect(() => manager.save(createNewSave('tab-a'))).toThrow('quota');
   });
 
@@ -87,57 +90,69 @@ describe('transactional local save', () => {
     const storage = new MemoryStorage();
     const manager = new SaveManager(storage, 'tab-a');
     const invalid = { ...createNewSave('tab-a'), progress: 'inside-wall' };
-    storage.setItem(SAVE_KEYS.primary, envelope(invalid as unknown as GameSave));
+    storage.setItem(SAVE_KEYS.primary, envelope(invalid));
 
     const result = manager.load();
 
     expect(result.recoveredFrom).toBe('new');
-    expect(result.save.progress).toBe('prologue');
+    expect(result.save.progress).toBe('intro');
   });
 
-  it('drops forged equipment identifiers before deriving gameplay stats', () => {
+  it('clamps forged combat resources and normalizes enemy flags', () => {
     const storage = new MemoryStorage();
     const manager = new SaveManager(storage, 'tab-a');
     const forged = {
       ...createNewSave('tab-a'),
-      loadout: {
-        weaponId: '<script>alert(1)</script>',
-        relicId: 'infinite-armor',
-        growthId: 'unknown'
+      player: { hp: 999999, stamina: -9, shift: Number.NaN },
+      defeated: {
+        'wisp-a': true,
+        'wisp-b': '<script>',
+        'approved-water-ghost': true,
+        forged: true
       }
     };
     storage.setItem(SAVE_KEYS.primary, envelope(forged));
+    const loaded = manager.load().save;
 
-    const result = manager.load();
-
-    expect(result.save.loadout).toEqual({
-      weaponId: null,
-      relicId: null,
-      growthId: null
+    expect(loaded.player).toEqual({ hp: 120, stamina: 0, shift: 0 });
+    expect(loaded.defeated).toEqual({
+      'wisp-a': true,
+      'wisp-b': false,
+      'wisp-c': false,
+      'approved-water-ghost': true
     });
   });
 
-  it('round-trips a deterministic in-battle checkpoint and consumed event IDs', () => {
+  it('migrates a schema-v3 world save to the new chapter start safely', () => {
     const storage = new MemoryStorage();
     const manager = new SaveManager(storage, 'tab-a');
-    const save = createNewSave('tab-a');
-    save.checkpoint = {
-      kind: 'inBattle',
-      eventId: 'battle:sentry:1',
-      battleId: 'sentry',
-      progressSnapshot: 'questAccepted',
-      loadoutSnapshot: { ...save.loadout }
-    };
-    save.consumedEvents = ['quest:accepted:1'];
+    storage.setItem(
+      SAVE_KEYS.primary,
+      envelope({
+        schemaVersion: 3,
+        contentVersion: '1.0.0',
+        revision: 12,
+        progress: 'bossDefeated',
+        playSeconds: 321,
+        settings: {
+          muted: true,
+          volume: 0.25,
+          reducedMotion: true,
+          quality: 'low',
+          keyGuideExpanded: false
+        }
+      })
+    );
 
-    manager.save(save);
     const loaded = manager.load().save;
 
-    expect(loaded.checkpoint).toEqual(save.checkpoint);
-    expect(loaded.consumedEvents).toEqual(['quest:accepted:1']);
+    expect(loaded.contentVersion).toBe(CONTENT_VERSION);
+    expect(loaded.progress).toBe('intro');
+    expect(loaded.playSeconds).toBe(321);
+    expect(loaded.settings.muted).toBe(true);
   });
 
-  it('rejects future schemas without overwriting the original record', () => {
+  it('rejects future schemas without overwriting their source record', () => {
     const storage = new MemoryStorage();
     const manager = new SaveManager(storage, 'tab-a');
     const future = {
@@ -145,7 +160,7 @@ describe('transactional local save', () => {
       schemaVersion: 99,
       contentVersion: 'future'
     };
-    const serialized = envelope(future as unknown as GameSave);
+    const serialized = envelope(future);
     storage.setItem(SAVE_KEYS.primary, serialized);
 
     const result = manager.load();

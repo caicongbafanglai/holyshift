@@ -3,85 +3,76 @@ import { CameraController } from './CameraController.js';
 import { InputManager } from './InputManager.js';
 import { Renderer } from './Renderer.js';
 import { GameUI } from '../ui/GameUI.js';
-import { SanctuaryWorld } from '../world/SanctuaryWorld.js';
+import { MushiTownWorld } from '../world/MushiTownWorld.js';
 import {
   CHECKPOINTS,
-  GROWTHS,
-  RELICS,
-  STORY,
-  WEAPONS
+  DIALOGUES,
+  INTERACTION_LABELS,
+  OBJECTIVES,
+  PLAYER_COMBAT
 } from '../data/content.ts';
+import { createNewSave } from '../domain/save.ts';
 import {
-  createBattle,
-  derivePlayerStats,
-  performAction
-} from '../domain/combat.ts';
+  collidesAt,
+  findWalkableGround
+} from '../entities/Player.js';
+import { ActionCombat } from '../gameplay/combat/ActionCombat.js';
 import {
-  createNewSave
-} from '../domain/save.ts';
-import { collidesAt, findWalkableGround } from '../entities/Player.js';
-
-const INTERACTION_LABELS = {
-  npc: '与守钟人弥迦交谈',
-  sentry: '挑战蚀誓守卫',
-  warden: '挑战灰烬典狱官',
-  boss: '接受最终裁决',
-  elite: '挑战无名守墓人',
-  weaponShrine: '选择一件武器',
-  relicShrine: '触碰圣物祭台'
-};
-
-const PROGRESS_AFTER_BATTLE = {
-  sentry: 'sentryDefeated',
-  warden: 'wardenDefeated',
-  boss: 'bossDefeated'
-};
-
-const BATTLE_STORY = {
-  sentry: STORY.sentry,
-  warden: STORY.warden,
-  boss: STORY.boss,
-  elite: STORY.elite
-};
+  allWaveEnemiesDefeated,
+  getNextProgressAfterWave
+} from '../gameplay/quests/ChapterOne.js';
 
 export class Game {
   constructor(container, saveManager, loadResult) {
     this.container = container;
-    this.lastFrameTime = performance.now();
-    this.mode = 'start';
-    this.started = false;
-    this.currentBattle = null;
-    this.currentBattleId = null;
-    this.pendingRewardDraft = null;
-    this.hudTimer = 0;
-    this.integrityTimer = 0;
-    this.autosaveTimer = 0;
-    this.externalConflict = false;
-    this.animationFrame = null;
-    this.dialogueSequence = 0;
-
     this.saveManager = saveManager;
     this.save = loadResult.save;
     this.hasSave = this.save.revision > 0;
+    this.lastFrameTime = performance.now();
+    this.mode = 'start';
+    this.modeBeforePause = 'explore';
+    this.started = false;
+    this.animationFrame = null;
+    this.hudTimer = 0;
+    this.integrityTimer = 0;
+    this.autosaveTimer = 0;
+    this.pendingWaveCompletion = null;
+    this.defeatHandling = false;
+    this.dialogueLines = [];
+    this.dialogueIndex = 0;
+    this.dialogueCompletion = null;
 
     this.renderer = new Renderer(container, this.save.settings.quality);
-    this.world = new SanctuaryWorld();
+    this.world = new MushiTownWorld();
+    this.world.setSoftwareRenderingMode(this.renderer.softwareRenderer);
     this.camera = new CameraController(container);
     this.camera.setCollisionObjects(this.world.cameraCollisionMeshes);
     this.input = new InputManager(this.renderer.instance.domElement);
     this.audio = new AudioSystem(this.save.settings);
     this.ui = new GameUI(container, {
-      onAction: (action, value, kind) => this.handleUiAction(action, value, kind),
+      onAction: (action, value, kind) =>
+        this.handleUiAction(action, value, kind),
       onSetting: (name, value) => this.handleSetting(name, value)
     });
+    this.combat = new ActionCombat(this.world, {
+      onAction: (action) => this.handleCombatSound(action),
+      onHit: (hit) => this.ui.showHit(hit),
+      onUnavailable: (message) => this.ui.showToast(message, 2400),
+      onPlayerDamage: ({ amount, attacker }) =>
+        this.handlePlayerDamage(amount, attacker),
+      onPlayerDefeat: () => this.handlePlayerDefeat(),
+      onDodge: () => this.audio.play('dodge'),
+      onFountainShift: () => void this.restoreFountain()
+    });
+    this.world.onEnemyDefeated = (enemy) => this.handleEnemyDefeated(enemy);
 
-    this.world.applyProgress(this.save.progress, this.save.defeated);
-    this.world.setCheckpoint(CHECKPOINTS[this.save.progress], false);
+    this.applySaveToWorld(false);
     this.applySettings();
     this.ui.showStart(this.save, this.hasSave);
-    loadResult.warnings.forEach((warning) => this.ui.showToast(warning, 6000));
+    loadResult.warnings.forEach((warning) =>
+      this.ui.showToast(warning, 6500)
+    );
     this.input.setEnabled(false);
-
     this.installEvents();
     this.installLocalTestBridge();
   }
@@ -91,9 +82,8 @@ export class Game {
       this.renderer.resize();
       this.camera.resize();
     });
-
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && this.started && !this.externalConflict) {
+      if (document.hidden && this.started) {
         void this.commitSave('页面隐藏', false);
       }
     });
@@ -108,30 +98,121 @@ export class Game {
       return;
     }
 
-    const bridge = Object.freeze({
-      teleportTo: (id) => {
-        if (!this.started || this.mode !== 'explore') return false;
-        const target = this.world.interactableObjects.get(id);
-        if (!target?.visible) return false;
-        this.world.player.position.set(target.position.x, 0, target.position.z + 3.05);
-        this.world.player.landOnGround({ y: 0 });
-        this.camera.resetView();
-        this.updateHud();
-        return true;
-      },
-      snapshot: () => ({
-        mode: this.mode,
-        progress: this.save.progress,
-        defeated: { ...this.save.defeated },
-        optionalMemento: this.save.optionalMemento,
-        position: this.world.player.position.toArray(),
-        renderer: this.renderer.stats
-      })
-    });
+    const teleportNear = (target, preferredDistance = 2.2) => {
+      if (!target || !this.started) return false;
+      const distances = [preferredDistance, 2.8, 3.25, 1.65];
+      for (const distance of distances) {
+        for (let index = 0; index < 20; index += 1) {
+          const angle = (index / 20) * Math.PI * 2;
+          const x = target.position.x + Math.sin(angle) * distance;
+          const z = target.position.z + Math.cos(angle) * distance;
+          const ground = findWalkableGround(
+            x,
+            z,
+            this.world.scene.userData.walkableSurfaces,
+            this.world.player.maxStepHeight
+          );
+          if (
+            !ground ||
+            collidesAt(
+              { x, y: ground.y, z },
+              this.world.scene.userData.solidColliders,
+              this.world.player.collisionRadius,
+              this.world.player.collisionHeight
+            )
+          ) {
+            continue;
+          }
+          this.world.player.position.set(x, ground.y, z);
+          this.world.player.landOnGround(ground);
+          this.camera.resetView();
+          this.updateHud();
+          return true;
+        }
+      }
+      return false;
+    };
 
     Object.defineProperty(window, '__holyShiftTest', {
-      value: bridge,
-      configurable: true
+      configurable: true,
+      value: Object.freeze({
+        teleportTo: (id) =>
+          teleportNear(this.world.interactableObjects.get(id)),
+        teleportToEnemy: (id) =>
+          teleportNear(this.world.enemies.get(id), 2.65),
+        defeatEnemy: (id) => {
+          const enemy = this.world.enemies.get(id);
+          if (!enemy?.isAlive) return false;
+          enemy.takeDamage(99999);
+          return true;
+        },
+        grantShift: (amount = PLAYER_COMBAT.maxShift) => {
+          this.save.player.shift = Math.min(
+            PLAYER_COMBAT.maxShift,
+            Math.max(0, Number(amount) || 0)
+          );
+          return this.save.player.shift;
+        },
+        useShiftAtFountain: () => {
+          this.save.player.shift = PLAYER_COMBAT.maxShift;
+          this.world.player.position.set(0, 0, 5);
+          this.world.player.landOnGround({ y: 0 });
+          this.combat.holyShift();
+          return true;
+        },
+        renderBenchmark: (iterations = 8) => {
+          const count = Math.min(30, Math.max(1, Number(iterations) || 1));
+          const started = performance.now();
+          for (let index = 0; index < count; index += 1) {
+            this.renderer.render(this.world.scene, this.camera.camera);
+          }
+          return (performance.now() - started) / count;
+        },
+        updateBenchmark: (iterations = 100) => {
+          const count = Math.min(500, Math.max(1, Number(iterations) || 1));
+          const started = performance.now();
+          for (let index = 0; index < count; index += 1) {
+            this.world.update(
+              1 / 60,
+              this.input,
+              this.camera.movementYaw,
+              true
+            );
+            this.combat.update(
+              1 / 60,
+              this.input,
+              this.camera.movementYaw,
+              false
+            );
+            this.camera.update(
+              this.world.player,
+              1 / 60,
+              this.input,
+              false
+            );
+          }
+          return (performance.now() - started) / count;
+        },
+        snapshot: () => ({
+          mode: this.mode,
+          progress: this.save.progress,
+          defeated: { ...this.save.defeated },
+          flags: { ...this.save.flags },
+          player: { ...this.save.player },
+          position: this.world.player.position.toArray(),
+          enemies: Object.fromEntries(
+            [...this.world.enemies].map(([id, enemy]) => [
+              id,
+              {
+                state: enemy.state,
+                hp: enemy.hp,
+                visible: enemy.visible
+              }
+            ])
+          ),
+          renderer: this.renderer.stats
+        })
+      })
     });
   }
 
@@ -145,7 +226,7 @@ export class Game {
     });
   }
 
-  handleUiAction(action, value, kind) {
+  handleUiAction(action) {
     switch (action) {
       case 'start-continue':
         void this.continueGame();
@@ -156,31 +237,17 @@ export class Game {
       case 'interact':
         this.interact();
         break;
+      case 'dialogue-next':
+        this.advanceDialogue();
+        break;
       case 'toggle-mute':
         this.setMuted(!this.save.settings.muted);
         break;
       case 'toggle-guide':
-        this.save.settings.keyGuideExpanded = !this.save.settings.keyGuideExpanded;
+        this.save.settings.keyGuideExpanded =
+          !this.save.settings.keyGuideExpanded;
         this.ui.toggleGuide(this.save.settings.keyGuideExpanded);
         void this.commitSave('键位面板设置', false);
-        break;
-      case 'dialogue-next':
-        this.ui.closeDialogue();
-        break;
-      case 'choice':
-        void this.selectChoice(kind, value);
-        break;
-      case 'reward-draft':
-        this.selectRewardDraft(kind, value);
-        break;
-      case 'reward-confirm':
-        void this.confirmRewardBundle();
-        break;
-      case 'combat':
-        this.combatAction(value);
-        break;
-      case 'combat-result':
-        void this.finishCombatResult();
         break;
       case 'resume':
         this.resume();
@@ -204,66 +271,76 @@ export class Game {
     if (this.started) return;
     this.started = true;
     this.mode = 'explore';
-    const activeBattle =
-      this.save.checkpoint?.kind === 'inBattle'
-        ? this.save.checkpoint
-        : null;
-    if (activeBattle) {
-      this.save.progress = activeBattle.progressSnapshot;
-      this.save.loadout = { ...activeBattle.loadoutSnapshot };
+    if (this.save.player.hp <= 0) {
+      this.save.player.hp = PLAYER_COMBAT.maxHp;
     }
-    this.world.applyProgress(this.save.progress, this.save.defeated);
-    this.world.setCheckpoint(CHECKPOINTS[this.save.progress], true);
-    this.camera.resetView();
+    this.applySaveToWorld(true);
     this.ui.hideStart();
     this.ui.hidePause();
     this.input.setEnabled(true);
     this.renderer.resetPerformanceSamples();
-    this.audio.resume();
+    await this.audio.resume();
     this.focusCanvas();
-    this.ui.showToast('已从最近的安全检查点继续。');
-    if (activeBattle) {
-      await this.startBattle(activeBattle.battleId, false);
-    }
+    this.ui.showChapterUpdate(OBJECTIVES[this.save.progress], '继续第一章');
   }
 
   async startNewGame(fromPause = false) {
-    if (this.mode === 'saving') return;
     if (
       this.hasSave &&
-      !window.confirm('开始新旅程会删除当前本地进度。确定继续吗？')
+      !window.confirm('开始新旅程会删除当前浏览器中的第一章进度。确定继续吗？')
     ) {
       return;
     }
-    this.mode = 'saving';
-    this.save = createNewSave(this.saveManager.writerId);
-    if (!(await this.commitSave('创建新旅程'))) {
-      this.hasSave = false;
-      this.mode = fromPause ? 'pause' : 'start';
+    try {
+      await this.saveManager.reset();
+    } catch (error) {
+      this.ui.showToast(
+        `无法清理旧存档：${error instanceof Error ? error.message : '未知错误'}。`,
+        6000
+      );
       return;
     }
+    this.save = createNewSave(this.saveManager.writerId);
+    if (!(await this.commitSave('创建 v0.3 新旅程'))) return;
     this.hasSave = true;
-    this.externalConflict = false;
     this.started = true;
-    this.currentBattle = null;
-    this.currentBattleId = null;
     this.mode = 'explore';
-    this.world.applyProgress(this.save.progress, this.save.defeated);
-    this.world.setCheckpoint(CHECKPOINTS.prologue, true);
-    this.camera.resetView();
+    this.modeBeforePause = 'explore';
+    this.pendingWaveCompletion = null;
+    this.defeatHandling = false;
+    this.ui.hideDialogue();
+    this.applySaveToWorld(true);
     this.ui.hideStart();
     this.ui.hidePause();
-    this.ui.hideCombat();
-    this.ui.hideChoice();
     this.input.setEnabled(true);
     this.renderer.resetPerformanceSamples();
-    this.audio.resume();
+    await this.audio.resume();
     this.focusCanvas();
-    if (fromPause) this.ui.showToast('新旅程已经开始。');
+    this.ui.showChapterUpdate('第一章 · 圣水有点生', '师老牧镇');
+    if (fromPause) this.ui.showToast('第一章已从头开始。');
+  }
+
+  applySaveToWorld(teleport) {
+    this.world.applyProgress(
+      this.save.progress,
+      this.save.defeated,
+      this.save.flags
+    );
+    this.world.setCheckpoint(CHECKPOINTS[this.save.progress], teleport);
+    this.combat?.bindState(this.save.player, this.save.defeated);
+    if (this.combat) {
+      this.combat.progress = this.save.progress;
+      this.combat.defeated = this.save.defeated;
+    }
+    if (teleport) this.camera?.resetView();
   }
 
   interact() {
-    if (this.mode !== 'explore') return;
+    if (!['explore', 'dialogue'].includes(this.mode)) return;
+    if (this.mode === 'dialogue') {
+      this.advanceDialogue();
+      return;
+    }
     const nearest = this.world.getNearestInteractable(
       this.save.progress,
       this.save.defeated
@@ -272,304 +349,191 @@ export class Game {
     this.audio.play('interact');
 
     switch (nearest.id) {
-      case 'npc':
-        if (this.save.progress === 'prologue') {
-          this.showDialogue('守钟人弥迦', STORY.prologue, '听取使命', () => {
-            this.showDialogue('守钟人弥迦', STORY.quest, '接受使命', () => {
-              this.save.progress = 'questAccepted';
-              void this.progressChanged('接受主线任务');
-            });
-          });
-        } else if (this.save.progress === 'bossDefeated') {
-          this.showDialogue('守钟人弥迦', STORY.ending, '见证复明', () => {
-            void this.completeEnding();
-          });
-        }
-        break;
-      case 'sentry':
-      case 'warden':
-      case 'boss':
-      case 'elite':
-        void this.startBattle(nearest.id);
-        break;
-      case 'weaponShrine':
-        this.showChoice(
-          '选择第一件圣器',
-          '武器会立即改变后续战斗。晨刃偏向力量，守誓锤提供攻守平衡。',
-          WEAPONS,
-          'weapon'
+      case 'pastorSenior':
+        this.showDialogueSequence(DIALOGUES.opening, () =>
+          void this.setProgress('inspectFountain', '接受圣水异常调查')
         );
         break;
-      case 'relicShrine':
-        if (this.save.progress === 'wardenDefeated') {
-          this.pendingRewardDraft = {
-            relicId: null,
-            growthId: null
-          };
-          this.mode = 'choice';
-          this.input.setEnabled(false);
-          this.input.releasePointer();
-          this.ui.showRewardBundle({
-            relics: RELICS,
-            growths: GROWTHS
-          });
+      case 'fountain':
+        if (this.save.progress === 'inspectFountain') {
+          this.showDialogueSequence(DIALOGUES.fountainDiscovery, () =>
+            void this.setProgress('clearWisps', '发现生水泡影')
+          );
         }
+        break;
+      case 'pingu':
+        this.showDialogueSequence(DIALOGUES.pinguTrace, () =>
+          void this.setProgress('consultLin', '确认圣字供应链封签')
+        );
+        break;
+      case 'linZhenyin':
+        this.showDialogueSequence(DIALOGUES.linWarning, () =>
+          void this.setProgress('defeatWaterGhost', '已审批水鬼出现')
+        );
+        break;
+      case 'elevator':
+        this.showDialogueSequence(DIALOGUES.ending, () => {
+          this.save.flags.elevatorSeen = true;
+          void this.setProgress('complete', '完成第一章');
+        });
+        break;
+      case 'student':
+        this.save.flags.heardStudentPun = true;
+        this.showDialogueSequence(DIALOGUES.studentPun, () =>
+          void this.commitSave('记录学生生水症状', false)
+        );
+        break;
+      case 'believer':
+        this.save.flags.heardBelieverPun = true;
+        this.showDialogueSequence(DIALOGUES.believerPun, () =>
+          void this.commitSave('记录信徒生水症状', false)
+        );
+        break;
+      case 'noticeBoard':
+        this.showDialogueSequence([
+          {
+            speaker: '神圣流程公告',
+            text: '圣水饮用前请完成神圣签到。异常发生后请在三个工作日内补填《异常已经发生但仍需事前审批表》。'
+          },
+          {
+            speaker: '老牧师',
+            text: '表格写得很完整，只有负责部门从“师牧会”变成了“失牧会”。又一个小型 Shift。'
+          }
+        ]);
         break;
       default:
         break;
     }
   }
 
-  showDialogue(speaker, text, button, callback) {
-    const sequence = ++this.dialogueSequence;
+  showDialogueSequence(lines, completion = null) {
+    if (!Array.isArray(lines) || lines.length === 0) return;
+    this.dialogueLines = lines;
+    this.dialogueIndex = 0;
+    this.dialogueCompletion = completion;
     this.mode = 'dialogue';
-    this.input.setEnabled(false);
     this.input.releasePointer();
-    this.ui.showDialogue({ speaker, text, button }, () => {
-      callback?.();
-      if (sequence === this.dialogueSequence && this.mode === 'dialogue') {
-        this.mode = 'explore';
-        this.input.setEnabled(true);
-        this.focusCanvas();
-      }
+    this.renderDialogueLine();
+  }
+
+  renderDialogueLine() {
+    const line = this.dialogueLines[this.dialogueIndex];
+    if (!line) return;
+    this.ui.showDialogue({
+      ...line,
+      final: this.dialogueIndex === this.dialogueLines.length - 1
     });
   }
 
-  showChoice(title, copy, choices, kind) {
-    this.mode = 'choice';
-    this.input.setEnabled(false);
-    this.input.releasePointer();
-    this.ui.showChoice({ title, copy, choices, kind });
-  }
-
-  async selectChoice(kind, id) {
-    if (this.mode !== 'choice') return;
-    if (kind === 'weapon' && WEAPONS.some((choice) => choice.id === id)) {
-      const previous = structuredClone(this.save);
-      this.mode = 'saving';
-      this.save.loadout.weaponId = id;
-      this.save.progress = 'weaponChosen';
-      this.consumeCheckpointEvent();
-      this.save.checkpoint = null;
-      if (!(await this.commitSave('装备武器'))) {
-        this.save = previous;
-        this.mode = 'choice';
-        return;
-      }
-      this.audio.play('choice');
-      this.ui.hideChoice();
-      this.mode = 'explore';
-      this.focusCanvas();
-      this.world.applyProgress(this.save.progress, this.save.defeated);
-      this.world.setCheckpoint(CHECKPOINTS[this.save.progress], false);
-      this.ui.showToast('奖励已原子保存。');
-    }
-  }
-
-  selectRewardDraft(kind, id) {
-    if (this.mode !== 'choice' || !this.pendingRewardDraft) return;
-    if (kind === 'relic' && RELICS.some((choice) => choice.id === id)) {
-      this.pendingRewardDraft.relicId = id;
-      this.ui.updateRewardDraft('relic', id);
-    }
-    if (kind === 'growth' && GROWTHS.some((choice) => choice.id === id)) {
-      this.pendingRewardDraft.growthId = id;
-      this.ui.updateRewardDraft('growth', id);
-    }
-  }
-
-  async confirmRewardBundle() {
-    const draft = this.pendingRewardDraft;
-    if (
-      this.mode !== 'choice' ||
-      !draft?.relicId ||
-      !draft.growthId ||
-      !RELICS.some((choice) => choice.id === draft.relicId) ||
-      !GROWTHS.some((choice) => choice.id === draft.growthId)
-    ) {
+  advanceDialogue() {
+    if (this.mode !== 'dialogue') return;
+    this.dialogueIndex += 1;
+    if (this.dialogueIndex < this.dialogueLines.length) {
+      this.renderDialogueLine();
       return;
     }
-
-    const previous = structuredClone(this.save);
-    this.mode = 'saving';
-    this.save.loadout.relicId = draft.relicId;
-    this.save.loadout.growthId = draft.growthId;
-    this.save.progress = 'growthChosen';
-    this.consumeCheckpointEvent();
-    this.save.checkpoint = null;
-    if (!(await this.commitSave('一次确认圣物与成长'))) {
-      this.save = previous;
-      this.mode = 'choice';
-      return;
-    }
-
-    this.pendingRewardDraft = null;
-    this.audio.play('choice');
-    this.ui.hideChoice();
+    const completion = this.dialogueCompletion;
+    this.dialogueLines = [];
+    this.dialogueIndex = 0;
+    this.dialogueCompletion = null;
+    this.ui.hideDialogue();
     this.mode = 'explore';
+    completion?.();
     this.focusCanvas();
-    this.world.applyProgress(this.save.progress, this.save.defeated);
-    this.world.setCheckpoint(CHECKPOINTS[this.save.progress], false);
-    this.ui.showToast('两项奖励已在同一事务中保存。');
   }
 
-  consumeCheckpointEvent() {
-    const eventId = this.save.checkpoint?.eventId;
-    if (eventId && !this.save.consumedEvents.includes(eventId)) {
-      this.save.consumedEvents.push(eventId);
-      this.save.consumedEvents = this.save.consumedEvents.slice(-64);
+  async setProgress(progress, reason) {
+    if (this.save.progress === progress) return true;
+    this.save.progress = progress;
+    if (progress === 'inspectElevator') {
+      this.save.flags.fountainRestored = true;
     }
-  }
-
-  async completeEnding() {
-    const previous = structuredClone(this.save);
-    this.save.progress = 'complete';
-    this.save.endingSeen = true;
-    this.consumeCheckpointEvent();
-    this.save.checkpoint = null;
-    if (!(await this.progressChanged('完成主线'))) {
-      this.save = previous;
-      return;
-    }
-    this.audio.play('complete');
-  }
-
-  async startBattle(enemyId, persistCheckpoint = true) {
-    if (persistCheckpoint) {
-      const previous = structuredClone(this.save);
-      this.mode = 'saving';
-      this.input.setEnabled(false);
-      this.save.checkpoint = {
-        kind: 'inBattle',
-        eventId: `battle:${enemyId}:${this.save.revision + 1}`,
-        battleId: enemyId,
-        progressSnapshot: this.save.progress,
-        loadoutSnapshot: { ...this.save.loadout }
-      };
-      if (!(await this.commitSave(`进入 ${enemyId} 战斗`))) {
-        this.save = previous;
-        this.mode = 'explore';
-        this.input.setEnabled(true);
-        return;
-      }
-    }
-    this.currentBattleId = enemyId;
-    this.currentBattle = createBattle(
-      enemyId,
-      derivePlayerStats(this.save.loadout)
-    );
-    this.mode = 'combat';
-    this.input.setEnabled(false);
-    this.input.releasePointer();
-    this.ui.showCombat(this.currentBattle);
-  }
-
-  combatAction(action) {
-    if (this.mode !== 'combat' || !this.currentBattle) return;
-    const result = performAction(this.currentBattle, action);
-    if (!result.accepted) {
-      this.ui.showToast(result.reason ?? '当前行动不可用。');
-      this.ui.updateCombat(this.currentBattle);
-      return;
-    }
-    this.currentBattle = result.state;
-    this.audio.play(action);
-    if (result.state.status === 'defeat') this.audio.play('defeat');
-    if (result.state.status === 'victory') this.audio.play('victory');
-    this.ui.updateCombat(this.currentBattle);
-    if (this.currentBattle.status !== 'active') {
-      this.ui.showCombatResult(this.currentBattle);
-    }
-  }
-
-  async finishCombatResult() {
-    if (
-      this.mode !== 'combat' ||
-      !this.currentBattle ||
-      !this.currentBattleId
-    ) {
-      return;
-    }
-    if (this.currentBattle.status === 'defeat') {
-      this.currentBattle = createBattle(
-        this.currentBattleId,
-        derivePlayerStats(this.save.loadout)
-      );
-      this.ui.showCombat(this.currentBattle);
-      return;
-    }
-
-    const enemyId = this.currentBattleId;
-    const previous = structuredClone(this.save);
-    const battleEventId =
-      this.save.checkpoint?.kind === 'inBattle'
-        ? this.save.checkpoint.eventId
-        : `battle:${enemyId}:${this.save.revision}`;
-    if (!this.save.consumedEvents.includes(battleEventId)) {
-      this.save.consumedEvents.push(battleEventId);
-    }
-    this.save.defeated[enemyId] = true;
-    if (enemyId === 'elite') {
-      this.save.optionalMemento = true;
-      this.save.checkpoint = null;
-    } else if (enemyId === 'boss') {
-      this.save.progress = 'bossDefeated';
-      this.save.checkpoint = {
-        kind: 'endingPending',
-        eventId: `ending:boss:${this.save.revision + 1}`
-      };
-    } else {
-      this.save.progress = PROGRESS_AFTER_BATTLE[enemyId];
-      this.save.checkpoint = {
-        kind: 'rewardPending',
-        eventId: `reward:${enemyId}:${this.save.revision + 1}`,
-        battleId: enemyId,
-        required:
-          enemyId === 'sentry'
-            ? ['weaponId']
-            : ['relicId', 'growthId']
-      };
-    }
-    this.mode = 'saving';
-    if (!(await this.commitSave(`结算 ${enemyId} 胜利`))) {
-      this.save = previous;
-      this.mode = 'combat';
-      return;
-    }
-    this.currentBattle = null;
-    this.currentBattleId = null;
-    this.ui.hideCombat();
-    this.mode = 'explore';
-    this.input.setEnabled(true);
-    this.world.applyProgress(this.save.progress, this.save.defeated);
-    this.world.setCheckpoint(CHECKPOINTS[this.save.progress], false);
-    this.ui.showToast('胜利已在原子事务中保存。');
-    this.showDialogue(
-      enemyId === 'elite' ? '碑上残响' : '圣堂回声',
-      BATTLE_STORY[enemyId],
-      '继续探索'
-    );
-  }
-
-  async progressChanged(reason) {
-    this.world.applyProgress(this.save.progress, this.save.defeated);
-    this.world.setCheckpoint(CHECKPOINTS[this.save.progress], false);
+    this.applySaveToWorld(false);
     const saved = await this.commitSave(reason);
-    if (saved) this.ui.showToast('进度已自动保存。');
+    this.ui.showChapterUpdate(OBJECTIVES[progress]);
+    if (saved) this.ui.showToast('主线进度已自动保存。', 1900);
     return saved;
   }
 
+  handleEnemyDefeated(enemy) {
+    const id = enemy.definition.id;
+    if (this.save.defeated[id]) return;
+    this.save.defeated[id] = true;
+    this.save.player.shift = Math.min(
+      PLAYER_COMBAT.maxShift,
+      this.save.player.shift + enemy.definition.rewardShift
+    );
+    this.audio.play('victory');
+    this.ui.showToast(`${enemy.definition.name} 已被移出当前流程。`, 2200);
+    void this.commitSave(`实时战斗击败 ${id}`, false);
+
+    if (
+      allWaveEnemiesDefeated(this.save.progress, this.save.defeated) &&
+      !this.pendingWaveCompletion
+    ) {
+      this.pendingWaveCompletion = {
+        timer: enemy.definition.boss ? 1.05 : 0.62,
+        progress: getNextProgressAfterWave(this.save.progress)
+      };
+    }
+  }
+
+  handleCombatSound(action) {
+    this.audio.play(
+      action === 'holy' ? 'holy' : action === 'dodge' ? 'dodge' : 'attack'
+    );
+  }
+
+  handlePlayerDamage(amount, attacker) {
+    this.audio.play('hurt');
+    this.ui.flashDamage();
+    this.ui.showToast(
+      `${attacker.definition.name} 命中，生命 -${amount}。`,
+      1200
+    );
+  }
+
+  handlePlayerDefeat() {
+    if (this.defeatHandling) return;
+    this.defeatHandling = true;
+    this.audio.play('defeat');
+    this.combat.restorePlayer();
+    this.world.setCheckpoint(CHECKPOINTS[this.save.progress], true);
+    this.camera.resetView();
+    this.ui.showToast(
+      '老牧师被流程驳回，已带着完整任务进度返回安全点；本轮异常已重置。',
+      5200
+    );
+    void this.commitSave('战败安全恢复', false).finally(() => {
+      this.defeatHandling = false;
+    });
+  }
+
+  async restoreFountain() {
+    if (this.save.progress !== 'restoreFountain') return;
+    this.save.flags.fountainRestored = true;
+    this.world.restoreFountain();
+    await this.setProgress('inspectElevator', 'Holy Shift 恢复圣水');
+    this.showDialogueSequence(DIALOGUES.restored);
+    this.audio.play('complete');
+  }
+
   async commitSave(_reason, announceFailure = true) {
-    if (this.externalConflict) return false;
     try {
       const scheduled = this.saveManager.save(this.save);
-      this.save = scheduled.save;
-      await scheduled.committed;
+      if (scheduled && 'committed' in scheduled) {
+        this.save = scheduled.save;
+        this.combat.bindState(this.save.player, this.save.defeated);
+        await scheduled.committed;
+      } else {
+        this.save = scheduled;
+        this.combat.bindState(this.save.player, this.save.defeated);
+      }
       return true;
     } catch (error) {
       if (announceFailure) {
         this.ui.showToast(
-          `存档事务未完成：${error instanceof Error ? error.message : '未知错误'}。内存会话仍保留，请检查隐私模式或存储空间后重试。`,
+          `存档事务未完成：${error instanceof Error ? error.message : '未知错误'}。当前内存会话仍可继续。`,
           7000
         );
       }
@@ -578,14 +542,19 @@ export class Game {
   }
 
   safeReset() {
-    const checkpoint = CHECKPOINTS[this.save.progress] ?? CHECKPOINTS.prologue;
-    this.world.setCheckpoint(checkpoint, true);
+    this.combat.restorePlayer();
+    this.world.setCheckpoint(
+      CHECKPOINTS[this.save.progress] ?? CHECKPOINTS.intro,
+      true
+    );
     this.camera.resetView();
-    this.ui.showToast('已返回最近的安全检查点。');
+    this.ui.showToast('已返回最近的安全检查点，当前异常遭遇已重置。');
+    void this.commitSave('手动安全复位', false);
   }
 
   pause() {
-    if (!this.started || this.mode !== 'explore') return;
+    if (!this.started || this.mode === 'start' || this.mode === 'pause') return;
+    this.modeBeforePause = this.mode;
     this.mode = 'pause';
     this.input.setEnabled(false);
     this.input.releasePointer();
@@ -593,11 +562,11 @@ export class Game {
   }
 
   resume() {
-    if (!this.started || this.externalConflict) return;
+    if (!this.started) return;
     this.ui.hidePause();
-    this.mode = 'explore';
+    this.mode = this.modeBeforePause === 'dialogue' ? 'dialogue' : 'explore';
     this.input.setEnabled(true);
-    this.audio.resume();
+    void this.audio.resume();
     this.focusCanvas();
   }
 
@@ -623,31 +592,35 @@ export class Game {
   }
 
   handleKeyboard() {
-    if (this.input.consumePressed('m')) this.setMuted(!this.save.settings.muted);
-
-    if (this.mode === 'explore') {
-      if (this.input.consumePressed('escape')) {
-        this.pause();
-        return;
-      }
-      if (this.input.consumePressed('v')) {
-        const firstPerson = this.camera.togglePerson();
-        this.ui.showToast(firstPerson ? '已切换为第一人称。' : '已切换为第三人称。', 1800);
-      }
-      if (this.input.consumePressed('r')) this.safeReset();
-      if (this.input.consumePressed('e')) this.interact();
+    if (this.input.consumePressed('m')) {
+      this.setMuted(!this.save.settings.muted);
+    }
+    if (this.mode === 'pause') {
+      if (this.input.consumePressed('escape')) this.resume();
       return;
     }
-
-    if (this.mode === 'pause' && this.input.consumePressed('escape')) {
-      this.resume();
+    if (!this.started || this.mode === 'start') return;
+    if (this.input.consumePressed('escape')) {
+      this.pause();
       return;
     }
-
-    if (this.mode === 'combat' && this.currentBattle?.status === 'active') {
-      if (this.input.consumePressed('1')) this.combatAction('attack');
-      if (this.input.consumePressed('2')) this.combatAction('defend');
-      if (this.input.consumePressed('3')) this.combatAction('holy');
+    if (this.input.consumePressed('v')) {
+      const firstPerson = this.camera.togglePerson();
+      this.ui.showToast(
+        firstPerson ? '已切换为第一人称。' : '已切换为第三人称。',
+        1500
+      );
+    }
+    if (this.input.consumePressed('r')) this.safeReset();
+    if (
+      this.mode === 'dialogue' &&
+      (this.input.consumePressed('e') || this.input.consumePressed('enter'))
+    ) {
+      this.advanceDialogue();
+      return;
+    }
+    if (this.mode === 'explore' && this.input.consumePressed('e')) {
+      this.interact();
     }
   }
 
@@ -659,32 +632,41 @@ export class Game {
       this.world.scene.userData.walkableSurfaces,
       player.position.y + player.maxStepHeight
     );
-    const insideSolid = collidesAt(
+    const insideStatic = collidesAt(
       player.position,
-      this.world.scene.userData.solidColliders,
+      this.world.baseColliders,
       player.collisionRadius,
       player.collisionHeight
     );
-    if (!this.world.isPositionValid(player.position) || !ground || insideSolid) {
-      this.safeReset();
-      this.ui.showToast('检测到非法或重叠位置，已自动回退到安全检查点。', 5000);
+    if (!this.world.isPositionValid(player.position) || !ground || insideStatic) {
+      this.world.setCheckpoint(
+        CHECKPOINTS[this.save.progress] ?? CHECKPOINTS.intro,
+        true
+      );
+      this.camera.resetView();
+      this.ui.showToast(
+        '检测到越界或实体重叠，已自动回退到无碰撞安全点。',
+        4600
+      );
     }
   }
 
   updateHud() {
     const nearest =
       this.mode === 'explore'
-        ? this.world.getNearestInteractable(this.save.progress, this.save.defeated)
+        ? this.world.getNearestInteractable(
+            this.save.progress,
+            this.save.defeated
+          )
         : null;
-    const stats = derivePlayerStats(this.save.loadout);
     this.ui.updateHud({
       save: this.save,
-      stats,
       cameraLabel: this.camera.label,
       objectivePosition: this.world.getObjectivePosition(this.save.progress),
       playerPosition: this.world.player.position,
       interaction: nearest ? INTERACTION_LABELS[nearest.id] : null,
-      fps: this.renderer.stats.fps
+      fps: this.renderer.stats.fps,
+      boss: this.combat.activeBoss
     });
   }
 
@@ -692,23 +674,46 @@ export class Game {
     this.animationFrame = requestAnimationFrame(this.loop);
     const now = performance.now();
     const frameDelta = Math.max((now - this.lastFrameTime) / 1000, 0);
-    const delta = Math.min(frameDelta, 0.05);
+    // Collision, dodge and enemy movement all substep internally, so a 100 ms
+    // ceiling preserves real-world timing on software renderers without
+    // allowing background-tab sized tunnelling jumps.
+    const delta = Math.min(frameDelta, 0.1);
     this.lastFrameTime = now;
 
     this.handleKeyboard();
-    const allowMovement = this.started && this.mode === 'explore';
-    this.world.update(delta, this.input, this.camera.movementYaw, allowMovement);
+    const simulationActive =
+      this.started && ['explore', 'dialogue'].includes(this.mode);
+    this.world.update(
+      delta,
+      this.input,
+      this.camera.movementYaw,
+      simulationActive
+    );
+    if (simulationActive) {
+      this.combat.update(
+        delta,
+        this.input,
+        this.camera.movementYaw,
+        true
+      );
+    }
     if (this.world.player.didResetThisFrame) this.camera.resetView();
     this.camera.update(
       this.world.player,
       delta,
       this.input,
-      allowMovement
+      simulationActive
     );
     this.renderer.recordFrame(frameDelta);
+    if (
+      this.renderer.softwareRenderer &&
+      !this.world.softwareRenderingMode
+    ) {
+      this.world.setSoftwareRenderingMode(true);
+    }
     this.renderer.render(this.world.scene, this.camera.camera);
 
-    if (this.started && (this.mode === 'explore' || this.mode === 'combat')) {
+    if (simulationActive) {
       this.save.playSeconds += delta;
       this.autosaveTimer += delta;
       if (this.autosaveTimer >= 30) {
@@ -717,22 +722,30 @@ export class Game {
       }
     }
 
+    if (this.pendingWaveCompletion) {
+      this.pendingWaveCompletion.timer -= delta;
+      if (this.pendingWaveCompletion.timer <= 0) {
+        const next = this.pendingWaveCompletion.progress;
+        this.pendingWaveCompletion = null;
+        void this.setProgress(next, '完成实时异常遭遇');
+      }
+    }
+
     this.integrityTimer -= delta;
-    if (allowMovement && this.integrityTimer <= 0) {
-      this.integrityTimer = 0.5;
+    if (simulationActive && this.integrityTimer <= 0) {
+      this.integrityTimer = 0.45;
       this.verifyPlayerIntegrity();
     }
 
     this.hudTimer -= delta;
     if (this.hudTimer <= 0) {
-      this.hudTimer = 0.12;
+      this.hudTimer = 0.09;
       this.updateHud();
       if (this.renderer.qualityNotice) {
         this.ui.showPerformanceNotice(this.renderer.qualityNotice);
         this.renderer.qualityNotice = null;
       }
     }
-
     this.input.endFrame();
   };
 }

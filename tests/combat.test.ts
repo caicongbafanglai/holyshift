@@ -1,64 +1,61 @@
 import { describe, expect, it } from 'vitest';
 import {
-  calculateDamage,
-  createBattle,
-  derivePlayerStats,
-  enumerateLoadouts,
-  findWinningPlan,
-  getIntent,
-  performAction
+  applyDamage,
+  horizontalDistance,
+  isTargetInsideAttackArc,
+  recoverResource,
+  smallestAngleDelta
 } from '../src/domain/combat';
 
-describe('deterministic combat rules', () => {
-  it('applies armor before the 50% defend reduction', () => {
-    expect(calculateDamage(7, 2, 1.6, false)).toBe(9);
-    expect(calculateDamage(7, 2, 1.6, true)).toBe(5);
-    expect(calculateDamage(1, 99, 1, true)).toBe(1);
+describe('real-time world combat math', () => {
+  it('accepts targets in front of the player and rejects targets behind', () => {
+    expect(
+      isTargetInsideAttackArc({
+        origin: { x: 0, z: 0 },
+        target: { x: 0.5, z: -2 },
+        facingYaw: Math.PI,
+        range: 3.15,
+        arcDegrees: 118
+      })
+    ).toBe(true);
+    expect(
+      isTargetInsideAttackArc({
+        origin: { x: 0, z: 0 },
+        target: { x: 0, z: 2 },
+        facingYaw: Math.PI,
+        range: 3.15,
+        arcDegrees: 118
+      })
+    ).toBe(false);
   });
 
-  it('rejects holy magic without spending a turn when faith is insufficient', () => {
-    const battle = createBattle('sentry', { maxHp: 12, pow: 4, arm: 1 });
-    const result = performAction(battle, 'holy');
-
-    expect(result.accepted).toBe(false);
-    expect(result.state).toEqual(battle);
-    expect(getIntent(result.state)).toBe('attack');
+  it('handles angle wraparound without a blind seam', () => {
+    expect(
+      Math.abs(smallestAngleDelta(Math.PI - 0.03, -Math.PI + 0.03))
+    ).toBeLessThan(0.07);
   });
 
-  it('ends immediately when the player defeats an enemy', () => {
-    const battle = createBattle('sentry', { maxHp: 12, pow: 40, arm: 1 });
-    const result = performAction(battle, 'attack');
-
-    expect(result.state.status).toBe('victory');
-    expect(result.state.player.hp).toBe(12);
-  });
-});
-
-describe('boss acceptance across all eight Must loadouts', () => {
-  const loadouts = enumerateLoadouts();
-
-  it('enumerates exactly eight legal combinations', () => {
-    expect(loadouts).toHaveLength(8);
+  it('enforces attack range independently of the arc', () => {
+    expect(
+      isTargetInsideAttackArc({
+        origin: { x: 0, z: 0 },
+        target: { x: 0, z: -3.16 },
+        facingYaw: Math.PI,
+        range: 3.15,
+        arcDegrees: 180
+      })
+    ).toBe(false);
   });
 
-  it.each(loadouts)('pure attacks fail for $weaponId / $relicId / $growthId', (loadout) => {
-    let battle = createBattle('boss', derivePlayerStats(loadout));
-
-    for (let turn = 0; turn < 20 && battle.status === 'active'; turn += 1) {
-      battle = performAction(battle, 'attack').state;
-    }
-
-    expect(battle.status).toBe('defeat');
+  it('clamps damage and resource recovery to safe numeric bounds', () => {
+    expect(applyDamage(120, 21)).toBe(99);
+    expect(applyDamage(8, 999)).toBe(0);
+    expect(applyDamage(Number.NaN, 1)).toBe(0);
+    expect(recoverResource(90, 100, 22, 1)).toBe(100);
+    expect(recoverResource(20, 100, 22, 0.5)).toBe(31);
   });
 
-  it.each(loadouts)(
-    'has a deterministic plan using both defend and holy for $weaponId / $relicId / $growthId',
-    (loadout) => {
-      const plan = findWinningPlan('boss', derivePlayerStats(loadout));
-
-      expect(plan).not.toBeNull();
-      expect(plan).toContain('defend');
-      expect(plan).toContain('holy');
-    }
-  );
+  it('uses horizontal world distance for melee and AI decisions', () => {
+    expect(horizontalDistance({ x: -2, z: 4 }, { x: 1, z: 8 })).toBe(5);
+  });
 });

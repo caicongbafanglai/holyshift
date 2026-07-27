@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const externalBaseUrl = process.env.PLAYWRIGHT_BASE_URL;
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 45_000,
@@ -14,7 +16,7 @@ export default defineConfig({
     ['html', { outputFolder: 'playwright-report', open: 'never' }]
   ],
   use: {
-    baseURL: 'http://127.0.0.1:4174',
+    baseURL: externalBaseUrl ?? 'http://127.0.0.1:4174',
     viewport: { width: 1280, height: 720 },
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
@@ -22,12 +24,14 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'off'
   },
-  webServer: {
-    command: 'npm run preview -- --port 4174',
-    url: 'http://127.0.0.1:4174',
-    reuseExistingServer: true,
-    timeout: 30_000
-  },
+  webServer: externalBaseUrl
+    ? undefined
+    : {
+        command: 'npm run preview -- --port 4174',
+        url: 'http://127.0.0.1:4174',
+        reuseExistingServer: true,
+        timeout: 30_000
+      },
   projects: [
     {
       name: 'chromium',
