@@ -73,7 +73,16 @@
 
 ## 6. 公网切换
 
-本节在 `/holyshift/` 切换到候选构建后补录 Nginx 配置校验、公网 HTML/资源响应、缓存/安全头和公网浏览器启动结果。部署前不得把本记录解读为线上验证完成。
+- 公网入口：`https://qt.fengche.ai/holyshift/`。
+- `/holyshift` 返回 `301` 到规范尾斜杠地址，`/holyshift/` 返回 `200`。
+- 公网 HTML 与本地 `dist/index.html` 的 SHA-256 均为 `c186c4b22ca153a1b30a9a3f115141f926f3105ecf5139609d6c228793c13d33`。
+- 公网引用的哈希资源为 `index-C5FvAL7m.js` 与 `index-uq6j3r7I.css`；JS 响应启用 gzip 和一年 immutable 缓存。
+- HTML 启用 CSP、`nosniff`、`DENY` frame、`no-referrer`、Permissions Policy 和同源资源策略。
+- HTML 的 `Cache-Control: no-transform` 阻止 Cloudflare 自动注入 Web Analytics；浏览器 DOM 只包含同源游戏脚本。
+- 新的缺失资产请求返回 `404` 且不带 immutable；存在的哈希资产返回 `200` 和 immutable。
+- Nginx 配置通过 `nginx -t`，重载后服务状态为 `active`；实际可复用片段保存在 `deploy/nginx-holyshift.locations.conf`。
+- Chromium、WebKit、Firefox 从公网分别完成打开、新旅程、切换第一人称、暂停、刷新和继续旅程；三者均为 `0` 页面错误、`0` 请求失败。
+- 生产域名未暴露 `window.__holyShiftTest`。
 
 ## 7. 证据边界
 

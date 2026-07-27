@@ -85,7 +85,7 @@ PW_FIREFOX_HEADED=1 xvfb-run -a npx playwright test --project=firefox
 
 ## 部署与回滚
 
-`.github/workflows/verify-dev.yml` 只在 `dev` 校验并保存经过验证的 `dist/` 构建产物。实际生产入口由 Nginx 的 `/holyshift/` 路径提供静态文件。
+`.github/workflows/verify-dev.yml` 只在 `dev` 校验并保存经过验证的 `dist/` 构建产物。实际生产入口由 Nginx 的 `/holyshift/` 路径提供静态文件，受审配置片段见 `deploy/nginx-holyshift.locations.conf`。
 
 部署必须：
 
