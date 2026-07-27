@@ -179,8 +179,13 @@ function addFurniture(world) {
       )
     );
   });
+  const visualBatch = batchMeshesWithVertexColors(furnitureRoot, {
+    name: '神圣广场家具多色顶点总批次'
+  });
   batchMeshesByMaterial(furnitureRoot, {
-    name: '神圣广场长椅路灯签到机静态批次'
+    name: '神圣广场家具透明材质批次',
+    preserve: new Set([visualBatch]),
+    includeTransparent: true
   });
   world.scene.add(furnitureRoot);
 }
