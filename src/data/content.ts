@@ -52,6 +52,7 @@ export const PLAYER_COMBAT = {
   maxShift: 100,
   lightDamage: [17, 21, 29],
   lightRange: 3.15,
+  lightVerticalRange: 2.75,
   lightArcDegrees: 118,
   lightCooldown: [0.31, 0.34, 0.46],
   shiftDamage: 105,
@@ -64,7 +65,12 @@ export const PLAYER_COMBAT = {
   flightStaminaPerSecond: 10,
   glideStaminaRecoveryPerSecond: 18,
   fountainHealPerSecond: 30,
-  fountainShiftRecoveryPerSecond: 28
+  fountainShiftRecoveryPerSecond: 28,
+  interactionVerticalRange: 3.25,
+  enemyDetectionVerticalRange: 4,
+  enemyAttackVerticalRange: 2.75,
+  fountainRestoreHorizontalRange: 14.5,
+  fountainRestoreVerticalRange: 3.25
 } as const;
 
 export const TASK_REWARD_CODES = 91;

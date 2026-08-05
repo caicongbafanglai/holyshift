@@ -17,7 +17,9 @@ async function visibleRectangles(page) {
       view: '.view-pill',
       guide: '.key-guide',
       combatKeys: '.combat-keys',
-      crosshair: '.crosshair'
+      crosshair: '.crosshair',
+      boss: '.boss-bar',
+      toast: '.toast'
     };
     return Object.fromEntries(
       Object.entries(selectors).map(([name, selector]) => {
@@ -41,7 +43,8 @@ async function visibleRectangles(page) {
 test('the permanent control guide leaves critical view and HUD regions unobstructed', async ({
   page
 }) => {
-  await page.goto('/');
+  test.setTimeout(90_000);
+  await page.goto('./');
   await page
     .getByRole('button', { name: '开始新旅程' })
     .evaluate((element) => element.click());
@@ -49,10 +52,31 @@ test('the permanent control guide leaves critical view and HUD regions unobstruc
 
   for (const viewport of [
     { width: 1280, height: 720 },
+    { width: 1121, height: 720 },
+    { width: 1120, height: 720 },
+    { width: 1100, height: 720 },
+    { width: 1076, height: 720 },
+    { width: 1075, height: 720 },
+    { width: 1024, height: 768 },
+    { width: 960, height: 540 },
+    { width: 901, height: 540 },
+    { width: 900, height: 540 },
+    { width: 844, height: 390 },
+    { width: 701, height: 360 },
+    { width: 700, height: 360 },
     { width: 640, height: 360 }
   ]) {
     await page.setViewportSize(viewport);
-    await page.waitForTimeout(250);
+    await page.evaluate(() => new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    }));
+    await page.locator('[data-ui="boss-bar"]').evaluate((element) =>
+      element.classList.remove('is-hidden')
+    );
+    await page.locator('[data-ui="toast"]').evaluate((element) => {
+      element.textContent = '布局动态态验证';
+      element.classList.remove('is-hidden');
+    });
     const boxes = await visibleRectangles(page);
 
     expect(intersects(boxes.hud, boxes.objective)).toBe(false);
@@ -64,6 +88,9 @@ test('the permanent control guide leaves critical view and HUD regions unobstruc
     expect(intersects(boxes.combatKeys, boxes.objective)).toBe(false);
     expect(intersects(boxes.combatKeys, boxes.crosshair)).toBe(false);
     expect(intersects(boxes.combatKeys, boxes.hud)).toBe(false);
+    expect(intersects(boxes.boss, boxes.guide)).toBe(false);
+    expect(intersects(boxes.boss, boxes.combatKeys)).toBe(false);
+    expect(intersects(boxes.toast, boxes.objective)).toBe(false);
   }
 
   await expect(page.locator('.viewport-warning')).not.toBeVisible();

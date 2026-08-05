@@ -1,4 +1,4 @@
-import { CHAPTER_ORDER } from '../../data/content.ts';
+import { CHAPTER_ORDER, PLAYER_COMBAT } from '../../data/content.ts';
 
 const MAIN_INTERACTIONS = {
   intro: ['pastorSenior'],
@@ -51,10 +51,23 @@ export function getNextProgressAfterWave(progress) {
   return progress;
 }
 
+export function reconcileCompletedWaveProgress(progress, defeated) {
+  return allWaveEnemiesDefeated(progress, defeated)
+    ? getNextProgressAfterWave(progress)
+    : progress;
+}
+
 export function canRestoreAtFountain(progress, playerPosition, fountainPosition) {
   if (progress !== 'restoreFountain') return false;
-  return Math.hypot(
+  const horizontalDistance = Math.hypot(
     playerPosition.x - fountainPosition.x,
     playerPosition.z - fountainPosition.z
-  ) <= 14.5;
+  );
+  const verticalDistance = Math.abs(
+    (playerPosition.y ?? 0) - (fountainPosition.y ?? 0)
+  );
+  return (
+    horizontalDistance <= PLAYER_COMBAT.fountainRestoreHorizontalRange &&
+    verticalDistance <= PLAYER_COMBAT.fountainRestoreVerticalRange
+  );
 }

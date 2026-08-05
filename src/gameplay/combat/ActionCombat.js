@@ -37,6 +37,15 @@ export class ActionCombat {
     this.world.syncEnemyWave(progress, defeated);
   }
 
+  resetSessionState() {
+    this.attackCooldown = 0;
+    this.shiftCooldown = 0;
+    this.combo = 0;
+    this.comboWindow = 0;
+    this.hitStop = 0;
+    this.effects.clear();
+  }
+
   update(delta, input, cameraYaw, enabled = true) {
     this.elapsed += delta;
     this.effects.update(delta);
@@ -123,7 +132,8 @@ export class ActionCombat {
             target: enemy.position,
             facingYaw: cameraYaw,
             range: PLAYER_COMBAT.lightRange,
-            arcDegrees: PLAYER_COMBAT.lightArcDegrees
+            arcDegrees: PLAYER_COMBAT.lightArcDegrees,
+            maxVerticalDistance: PLAYER_COMBAT.lightVerticalRange
           })
       )
       .sort(
@@ -225,7 +235,7 @@ export class ActionCombat {
     this.playerState.hp = PLAYER_COMBAT.maxHp;
     this.playerState.stamina = getStaminaMaximum(this.playerState);
     this.playerState.shift = Math.max(0, this.playerState.shift * 0.5);
-    this.world.resetActiveEnemies();
+    this.world.resetActiveEnemies(this.defeated);
   }
 
   get activeBoss() {

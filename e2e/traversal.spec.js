@@ -3,15 +3,14 @@ import { expect, test } from '@playwright/test';
 test('flight, downward glide and fountain recovery form a safe resource loop', async ({
   page
 }) => {
-  await page.goto('/?e2e=1');
+  await page.goto('./?e2e=1');
   await page
     .getByRole('button', { name: '开始新旅程' })
     .evaluate((element) => element.click());
   await expect(page.locator('[data-ui="start-screen"]')).toHaveClass(/is-hidden/);
 
   await page.evaluate(() => window.__holyShiftTest.setCameraPitch(0.55));
-  await page.keyboard.down('Shift');
-  await page.keyboard.down('Control');
+  await page.keyboard.down('KeyX');
   await page.keyboard.down('KeyW');
   let airborne = null;
   await expect.poll(async () => {
@@ -34,8 +33,7 @@ test('flight, downward glide and fountain recovery form a safe resource loop', a
     );
   }, { timeout: 8000 }).toBe(true);
   await page.keyboard.up('KeyW');
-  await page.keyboard.up('Control');
-  await page.keyboard.up('Shift');
+  await page.keyboard.up('KeyX');
 
   expect(airborne.traversal.flying).toBe(true);
   expect(airborne.player.stamina).toBeLessThan(100);

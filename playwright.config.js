@@ -1,6 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const externalBaseUrl = process.env.PLAYWRIGHT_BASE_URL;
+const localBaseUrl = 'http://127.0.0.1:4174/holyshift/';
+const buildOutDir = process.env.HOLYSHIFT_DIST_DIR;
+const quoteForPosixShell = (value) =>
+  `'${value.replaceAll("'", "'\"'\"'")}'`;
+const previewCommand = buildOutDir
+  ? `npm run preview -- --port 4174 --outDir ${quoteForPosixShell(buildOutDir)}`
+  : 'npm run preview -- --port 4174';
 
 export default defineConfig({
   testDir: './e2e',
@@ -10,26 +17,34 @@ export default defineConfig({
   },
   fullyParallel: false,
   forbidOnly: true,
-  retries: 0,
+  retries: process.env.CI ? 1 : 0,
   reporter: [
     ['list'],
-    ['html', { outputFolder: 'playwright-report', open: 'never' }]
+    [
+      'html',
+      {
+        outputFolder: process.env.PLAYWRIGHT_HTML_OUTPUT_DIR ?? 'playwright-report',
+        open: 'never'
+      }
+    ]
   ],
+  outputDir: process.env.PLAYWRIGHT_TEST_OUTPUT_DIR ?? 'test-results',
   use: {
-    baseURL: externalBaseUrl ?? 'http://127.0.0.1:4174',
+    baseURL: externalBaseUrl ?? localBaseUrl,
     viewport: { width: 1280, height: 720 },
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'off'
   },
   webServer: externalBaseUrl
     ? undefined
     : {
-        command: 'npm run preview -- --port 4174',
-        url: 'http://127.0.0.1:4174',
-        reuseExistingServer: true,
+        command: previewCommand,
+        url: localBaseUrl,
+        // Evidence must fail on a stale listener, never test an older build.
+        reuseExistingServer: false,
         timeout: 30_000
       },
   projects: [

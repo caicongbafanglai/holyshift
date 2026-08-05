@@ -109,6 +109,12 @@ export class CameraController {
     this.justSwitched = true;
   }
 
+  resetSessionState() {
+    this.firstPerson = false;
+    this.camera.name = 'third-person-camera';
+    this.resetView();
+  }
+
   get movementYaw() {
     return this.yaw;
   }

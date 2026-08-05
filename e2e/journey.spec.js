@@ -41,7 +41,7 @@ test('completes the real-time first chapter and persists its world state', async
   });
   page.on('pageerror', (error) => runtimeErrors.push(error.message));
 
-  await page.goto('/?e2e=1');
+  await page.goto('./?e2e=1');
   await fastClick(page.getByRole('button', { name: '开始新旅程' }));
   await expect.poll(
     () => page.evaluate(() => Boolean(window.__holyShiftTest))
@@ -109,7 +109,12 @@ test('completes the real-time first chapter and persists its world state', async
       id
     );
   }
+  await page.reload();
+  await fastClick(page.getByRole('button', { name: '继续第一章' }));
   await expectProgress(page, 'traceSacredGlyph');
+  await expect.poll(
+    () => page.evaluate(() => window.__holyShiftTest.snapshot().economy.codes)
+  ).toBe(273);
 
   await teleportAndInteract(page, 'pingu');
   await advanceDialogue(page, 4);
@@ -127,6 +132,8 @@ test('completes the real-time first chapter and persists its world state', async
   );
   await expectProgress(page, 'restoreFountain');
   await page.evaluate(() => window.__holyShiftTest.useShiftAtFountain());
+  await page.keyboard.press('KeyB');
+  await expect(page.locator('[data-ui="backpack"]')).toHaveClass(/is-hidden/);
   await expectProgress(page, 'inspectElevator');
   await advanceDialogue(page, 2);
   await expect.poll(

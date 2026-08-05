@@ -101,4 +101,13 @@ export class CombatEffects {
       }
     }
   }
+
+  clear() {
+    for (const effect of this.active) {
+      this.scene.remove(effect.object);
+      effect.object.geometry.dispose();
+      effect.material.dispose();
+    }
+    this.active = [];
+  }
 }

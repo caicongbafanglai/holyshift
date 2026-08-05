@@ -13,6 +13,7 @@ const CONTROL_KEYS = new Set([
   'escape',
   'j',
   'q',
+  'x',
   'ctrl',
   'enter'
 ]);
@@ -35,6 +36,14 @@ function isEditableTarget(target) {
   );
 }
 
+function usesNativeActivation(target, key) {
+  return (
+    target instanceof HTMLElement &&
+    target.matches('button, a[href]') &&
+    (key === 'space' || key === 'enter')
+  );
+}
+
 export class InputManager {
   constructor(canvas) {
     this.canvas = canvas;
@@ -46,6 +55,7 @@ export class InputManager {
     window.addEventListener('keydown', (event) => {
       const key = normalizeKey(event);
       if (isEditableTarget(event.target) && key !== 'escape') return;
+      if (usesNativeActivation(event.target, key)) return;
       if (!CONTROL_KEYS.has(key)) return;
       event.preventDefault();
       if (!event.repeat) this.pressed.add(key);

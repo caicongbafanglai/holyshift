@@ -19,7 +19,7 @@ import {
 import { createNoticeBoard } from '../art/props/createNoticeBoard.js';
 import { createSacredBench, createSacredLamp, createApprovalKiosk } from '../art/props/createPlazaFurniture.js';
 import { createSausageCart } from '../art/props/createSausageCart.js';
-import { ENEMIES, CHECKPOINTS } from '../data/content.ts';
+import { ENEMIES, CHECKPOINTS, PLAYER_COMBAT } from '../data/content.ts';
 import { MAP } from '../data/mapConfig.js';
 import { Player } from '../entities/Player.js';
 import { CombatEnemyAgent } from '../gameplay/combat/CombatEnemyAgent.js';
@@ -751,9 +751,9 @@ export class MushiTownWorld {
     this.refreshEnemyColliders();
   }
 
-  resetActiveEnemies() {
-    for (const enemy of this.enemies.values()) {
-      if (enemy.state !== 'inactive') enemy.reset();
+  resetActiveEnemies(defeated = {}) {
+    for (const [id, enemy] of this.enemies) {
+      if (enemy.state !== 'inactive') enemy.activate(defeated[id] === true);
     }
     this.refreshEnemyColliders();
   }
@@ -842,7 +842,13 @@ export class MushiTownWorld {
         this.player.position.x - anchor.position.x,
         this.player.position.z - anchor.position.z
       );
-      if (distance < nearestDistance) {
+      const verticalDistance = Math.abs(
+        this.player.position.y - anchor.position.y
+      );
+      if (
+        verticalDistance <= PLAYER_COMBAT.interactionVerticalRange &&
+        distance < nearestDistance
+      ) {
         nearest = { id, distance, object: anchor };
         nearestDistance = distance;
       }

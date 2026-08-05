@@ -15,7 +15,7 @@ test('starts the 师老牧镇 3D chapter without runtime errors', async ({
   });
   page.on('pageerror', (error) => errors.push(error.message));
 
-  await page.goto('/');
+  await page.goto('./');
   await expect(page).toHaveTitle(/Holy Shift.*师老牧镇/);
   await expect(page.getByRole('heading', { name: 'HOLY SHIFT' })).toBeVisible();
   await expect(page.getByText('师老牧镇 · 圣水有点生')).toBeVisible();
@@ -43,7 +43,7 @@ test('starts the 师老牧镇 3D chapter without runtime errors', async ({
 test('movement, real-time controls, camera toggle, pause and reset stay operable', async ({
   page
 }) => {
-  await page.goto('/?e2e=1');
+  await page.goto('./?e2e=1');
   await page.getByRole('button', { name: '开始新旅程' }).click();
   await expect(page.locator('[data-ui="start-screen"]')).toHaveClass(/is-hidden/);
 

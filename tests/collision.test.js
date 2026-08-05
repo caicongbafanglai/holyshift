@@ -167,7 +167,7 @@ describe('plaza collision and anti-softlock invariants', () => {
     for (let frame = 0; frame < 30; frame += 1) {
       player.update(
         0.05,
-        heldInput('ctrl', 'shift', 'w'),
+        heldInput('x', 'w'),
         movementFrame,
         navigation,
         10
@@ -203,7 +203,7 @@ describe('plaza collision and anti-softlock invariants', () => {
         maxZ: 20
       }
     };
-    const input = heldInput('ctrl', 'shift', 'w');
+    const input = heldInput('x', 'w');
     player.position.set(0, 4, 4);
     player.update(
       0.1,
@@ -270,7 +270,7 @@ describe('plaza collision and anti-softlock invariants', () => {
   it('settles beside an NPC instead of hovering or landing inside it after flight', () => {
     const world = new MushiTownWorld();
     const player = world.player;
-    const flightInput = heldInput('ctrl', 'shift', 'w');
+    const flightInput = heldInput('x', 'w');
     const idleInput = heldInput();
     const movementFrame = {
       yaw: 0,
@@ -308,6 +308,38 @@ describe('plaza collision and anti-softlock invariants', () => {
     ).toBe(false);
   });
 
+  it.each([10, 21])('finds a collision-free landing from y=%i above the fountain core', (height) => {
+    const world = new MushiTownWorld();
+    const player = world.player;
+    player.position.set(0, height, -8);
+    player.update(
+      0.01,
+      heldInput('x', 'w'),
+      {
+        yaw: Math.PI,
+        forward: new THREE.Vector3(0, 0, -1),
+        right: new THREE.Vector3(1, 0, 0)
+      },
+      world.scene.userData,
+      1
+    );
+
+    for (let frame = 0; frame < 320 && !player.grounded; frame += 1) {
+      player.update(0.05, heldInput(), Math.PI, world.scene.userData);
+    }
+
+    expect(player.verticalStateLabel).toBe('GROUND');
+    expect(
+      collidesAt(
+        player.position,
+        world.baseColliders,
+        player.collisionRadius,
+        player.collisionHeight
+      )
+    ).toBe(false);
+    expect(world.isPositionValid(player.position)).toBe(true);
+  });
+
   it('glides through a low NPC proxy and selects a collision-free landing beside it', () => {
     const world = new MushiTownWorld();
     const player = world.player;
@@ -324,7 +356,7 @@ describe('plaza collision and anti-softlock invariants', () => {
     player.position.set(-31, 3, 37);
     player.update(
       0.01,
-      heldInput('ctrl', 'shift', 'w'),
+      heldInput('x', 'w'),
       climbFrame,
       world.scene.userData,
       1
@@ -333,7 +365,7 @@ describe('plaza collision and anti-softlock invariants', () => {
     for (let frame = 0; frame < 60 && !player.grounded; frame += 1) {
       player.update(
         0.05,
-        heldInput('ctrl', 'shift', 'w', 's'),
+        heldInput('x', 'w', 's'),
         glideFrame,
         world.scene.userData,
         0
@@ -356,7 +388,7 @@ describe('plaza collision and anti-softlock invariants', () => {
   it('keeps pitched flight inside the 3D island envelope across obstacle sweeps', () => {
     const world = new MushiTownWorld();
     const player = world.player;
-    const input = heldInput('ctrl', 'shift', 'w');
+    const input = heldInput('x', 'w');
     const directions = [
       new THREE.Vector3(1, 0, 0),
       new THREE.Vector3(-1, 0, 0),
@@ -492,6 +524,151 @@ describe('plaza collision and anti-softlock invariants', () => {
     }
   });
 
+  it('keeps persisted defeated enemies dead when an encounter is safely reset', () => {
+    const world = new MushiTownWorld();
+    const defeated = { ...emptyDefeated, 'wisp-a': true };
+    world.applyProgress('clearWisps', defeated, {});
+
+    world.resetActiveEnemies(defeated);
+
+    expect(world.enemies.get('wisp-a')).toMatchObject({
+      state: 'dead',
+      visible: false
+    });
+    expect(world.enemies.get('wisp-b').isAlive).toBe(true);
+    expect(world.enemies.get('wisp-c').isAlive).toBe(true);
+  });
+
+  it('routes enemies through the fountain entrance and around its core without dropping chase', () => {
+    const world = new MushiTownWorld();
+    world.applyProgress('defeatWaterGhost', emptyDefeated, {});
+    const boss = world.enemies.get('approved-water-ghost');
+    // HS03-AI-001 registered Boss targets; every target must produce a hit
+    // within 60 simulated seconds, not merely within the wider stress budget.
+    for (const [x, z] of [
+      [0, -20],
+      [0, -16],
+      [0, -14],
+      [6, -2],
+      [-6, -2],
+      [4, -8],
+      [-4, -8]
+    ]) {
+      boss.activate(false);
+      world.player.position.set(x, 0, z);
+      let hits = 0;
+
+      let firstHitSeconds = null;
+      for (let frame = 0; frame < 600 && hits === 0; frame += 1) {
+        boss.updateAgent(
+          0.1,
+          frame / 10,
+          world.player,
+          world.scene.userData,
+          () => {
+            hits += 1;
+            firstHitSeconds = (frame + 1) / 10;
+          }
+        );
+        if (
+          collidesAt(
+            boss.position,
+            world.baseColliders,
+            boss.definition.radius,
+            boss.height
+          )
+        ) {
+          throw new Error(`boss intersected static geometry en route to ${x},${z}`);
+        }
+      }
+
+      expect(hits, `boss reaches ${x},${z}`).toBeGreaterThan(0);
+      expect(firstHitSeconds, `boss hits ${x},${z} within 60s`).toBeLessThanOrEqual(60);
+    }
+
+    world.applyProgress('clearWisps', emptyDefeated, {});
+    const wisp = world.enemies.get('wisp-a');
+    world.player.position.set(-7, 0, -17);
+    let wispHits = 0;
+    for (let frame = 0; frame < 900 && wispHits === 0; frame += 1) {
+      wisp.updateAgent(
+        0.1,
+        frame / 10,
+        world.player,
+        world.scene.userData,
+        () => { wispHits += 1; }
+      );
+    }
+    expect(wispHits).toBeGreaterThan(0);
+    expect(wisp.state).not.toBe('idle');
+  }, 15_000);
+
+  it('does not plan a fountain detour or aggro outside the frozen detection range', () => {
+    const world = new MushiTownWorld();
+    world.applyProgress('clearWisps', emptyDefeated, {});
+    const wisp = world.enemies.get('wisp-c');
+    const spawn = wisp.position.clone();
+
+    world.player.position.set(0, 0, 13);
+    expect(wisp.position.distanceTo(world.player.position)).toBeGreaterThan(
+      wisp.definition.detectionRange
+    );
+    wisp.updateAgent(0.1, 0, world.player, world.scene.userData, () => {});
+
+    expect(wisp.state).toBe('idle');
+    expect(wisp.navigationWaypoints).toHaveLength(0);
+    expect(wisp.position.toArray()).toEqual(spawn.toArray());
+
+    world.player.position.set(0, 0, -9);
+    expect(wisp.position.distanceTo(world.player.position)).toBeLessThanOrEqual(
+      wisp.definition.detectionRange
+    );
+    wisp.updateAgent(0.1, 0.1, world.player, world.scene.userData, () => {});
+
+    expect(wisp.state).toBe('chase');
+    expect(wisp.navigationWaypoints.length).toBeGreaterThan(0);
+  });
+
+  it('reverses local steering after measured stalls at furniture obstacles', () => {
+    const world = new MushiTownWorld();
+    world.applyProgress('clearWisps', emptyDefeated, {});
+    for (const [enemyId, x, z] of [
+      ['wisp-a', -16, 16],
+      ['wisp-b', 22, 10],
+      ['wisp-b', 22, 13],
+      ['wisp-b', 22, 16],
+      ['wisp-b', 22, 19],
+      ['wisp-b', 25, 19]
+    ]) {
+      const enemy = world.enemies.get(enemyId);
+      enemy.avoidanceSign *= -1;
+      enemy.activate(false);
+      expect(enemy.avoidanceSign).toBe(enemy.initialAvoidanceSign);
+      world.player.position.set(x, 0, z);
+      let hits = 0;
+      for (let frame = 0; frame < 900 && hits === 0; frame += 1) {
+        enemy.updateAgent(
+          0.1,
+          frame / 10,
+          world.player,
+          world.scene.userData,
+          () => { hits += 1; }
+        );
+        if (
+          collidesAt(
+            enemy.position,
+            world.baseColliders,
+            enemy.definition.radius,
+            enemy.height
+          )
+        ) {
+          throw new Error(`${enemyId} intersected static geometry en route to ${x},${z}`);
+        }
+      }
+      expect(hits, `${enemyId} reaches ${x},${z}`).toBeGreaterThan(0);
+    }
+  }, 15_000);
+
   it('survives deterministic sweeps through walls, furniture, fountain corners, and island edges', () => {
     const world = new MushiTownWorld();
     const navigation = world.scene.userData;
@@ -524,22 +701,28 @@ describe('plaza collision and anti-softlock invariants', () => {
               Math.PI,
               navigation
             );
-            expect(Number.isFinite(world.player.position.x)).toBe(true);
-            expect(Number.isFinite(world.player.position.y)).toBe(true);
-            expect(Number.isFinite(world.player.position.z)).toBe(true);
-            expect(
+            if (!world.player.position.toArray().every(Number.isFinite)) {
+              throw new Error(
+                `non-finite player position from ${x},${z} toward ${direction.join('+')} at frame ${frame}`
+              );
+            }
+            if (
               collidesAt(
                 world.player.position,
                 world.baseColliders,
                 world.player.collisionRadius,
                 world.player.collisionHeight
               )
-            ).toBe(false);
+            ) {
+              throw new Error(
+                `collision from ${x},${z} toward ${direction.join('+')} at frame ${frame}`
+              );
+            }
           }
           exercised += 1;
         }
       }
     }
     expect(exercised).toBeGreaterThan(600);
-  });
+  }, 15_000);
 });

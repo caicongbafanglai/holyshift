@@ -8,6 +8,7 @@ import {
   type EnemyId,
   type FoodId
 } from '../data/content';
+import { reconcileCompletedWaveProgress } from '../gameplay/quests/ChapterOne.js';
 
 export const SAVE_SCHEMA_VERSION = 4;
 export const CONTENT_VERSION = '0.3.0';
@@ -255,7 +256,17 @@ export function migrateSave(raw: unknown, writerId: string): GameSave | null {
   }
 
   const defaults = createNewSave(writerId);
-  const defeated = isRecord(raw.defeated) ? raw.defeated : {};
+  const rawDefeated = isRecord(raw.defeated) ? raw.defeated : {};
+  const defeated = Object.fromEntries(
+    (Object.keys(ENEMIES) as EnemyId[]).map((id) => [
+      id,
+      rawDefeated[id] === true
+    ])
+  ) as Record<EnemyId, boolean>;
+  const progress = reconcileCompletedWaveProgress(
+    raw.progress,
+    defeated
+  ) as ChapterProgress;
   const flags = isRecord(raw.flags) ? raw.flags : {};
   const player = isRecord(raw.player) ? raw.player : {};
   const economy = isRecord(raw.economy) ? raw.economy : {};
@@ -268,7 +279,7 @@ export function migrateSave(raw: unknown, writerId: string): GameSave | null {
   let economyCodes = normalizeCodes(economy.codes);
   const earnedProgress = CHAPTER_ORDER.slice(
     1,
-    CHAPTER_ORDER.indexOf(raw.progress as ChapterProgress) + 1
+    CHAPTER_ORDER.indexOf(progress) + 1
   );
   for (const completedProgress of earnedProgress) {
     const rewardEvent = `reward:progress:${completedProgress}`;
@@ -311,7 +322,7 @@ export function migrateSave(raw: unknown, writerId: string): GameSave | null {
       typeof raw.writerId === 'string' && raw.writerId.length <= 128
         ? raw.writerId
         : writerId,
-    progress: raw.progress as ChapterProgress,
+    progress,
     player: {
       hp: finiteResource(player.hp, PLAYER_COMBAT.maxHp, PLAYER_COMBAT.maxHp),
       stamina: normalizedStamina,
@@ -322,9 +333,7 @@ export function migrateSave(raw: unknown, writerId: string): GameSave | null {
       codes: economyCodes,
       inventory: normalizeInventory(economy.inventory)
     },
-    defeated: Object.fromEntries(
-      (Object.keys(ENEMIES) as EnemyId[]).map((id) => [id, defeated[id] === true])
-    ) as Record<EnemyId, boolean>,
+    defeated,
     flags: {
       heardStudentPun: flags.heardStudentPun === true,
       heardBelieverPun: flags.heardBelieverPun === true,

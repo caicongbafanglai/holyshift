@@ -72,15 +72,15 @@ export class GameUI {
         </div>
       </section>
 
-      <section class="objective" aria-live="polite">
+      <section class="objective">
         <span>第一章 · 圣水有点生</span>
-        <strong data-ui="objective">与牧司学姐确认圣水异常</strong>
-        <b data-ui="objective-distance"></b>
+        <strong data-ui="objective" aria-live="polite">与牧司学姐确认圣水异常</strong>
+        <b data-ui="objective-distance" aria-hidden="true"></b>
       </section>
 
       <div class="view-pill">
         <span data-ui="view-mode">第三人称</span>
-        <button type="button" data-action="toggle-mute" aria-label="切换静音">
+        <button type="button" data-action="toggle-mute" data-ui="mute-button" aria-label="切换静音" aria-pressed="false">
           <span data-ui="mute-icon">音效开</span>
         </button>
       </div>
@@ -92,15 +92,15 @@ export class GameUI {
       </aside>
 
       <aside class="key-guide" data-ui="key-guide" aria-label="操作说明">
-        <button class="key-guide__toggle" type="button" data-action="toggle-guide" aria-expanded="true">
+        <button class="key-guide__toggle" type="button" data-action="toggle-guide" aria-expanded="true" aria-controls="key-guide-body">
           <span>完整操作</span><span data-ui="guide-chevron">收起</span>
         </button>
-        <div class="key-guide__body" data-ui="guide-body">
+        <div class="key-guide__body" id="key-guide-body" data-ui="guide-body">
           <div><kbd>W A S D</kbd><span>移动</span></div>
           <div><kbd>鼠标</kbd><span>观察 / 点击锁定</span></div>
           <div><kbd>Shift</kbd><span>疾跑 · 点按回 SHIFT</span></div>
           <div><kbd>Space</kbd><span>跳跃</span></div>
-          <div class="key-guide__wide"><kbd>Ctrl + Shift + W A S D</kbd><span>视向飞行 · 俯视滑翔回耐</span></div>
+          <div class="key-guide__wide"><kbd>X + W A S D</kbd><span>视向飞行 · 俯视滑翔回耐</span></div>
           <div><kbd>E</kbd><span>调查 / 交谈</span></div>
           <div><kbd>B</kbd><span>背包 / 使用食品</span></div>
           <div><kbd>V</kbd><span>第一 / 第三人称</span></div>
@@ -138,7 +138,7 @@ export class GameUI {
         </button>
       </section>
 
-      <section class="overlay start-screen" data-ui="start-screen" aria-labelledby="game-title">
+      <section class="overlay start-screen" data-ui="start-screen" role="dialog" aria-modal="true" aria-labelledby="game-title">
         <div class="start-screen__skyline" aria-hidden="true">
           <i></i><i></i><i></i><i></i><i></i>
         </div>
@@ -163,6 +163,7 @@ export class GameUI {
           <p class="start-screen__notice">
             无需登录。存档只保存在当前浏览器；清除站点数据会删除进度。
           </p>
+          <p class="start-screen__warning is-hidden" data-ui="start-warning" role="alert"></p>
         </div>
       </section>
 
@@ -203,10 +204,10 @@ export class GameUI {
         </div>
       </section>
 
-      <section class="overlay pause is-hidden" data-ui="pause" aria-modal="true" role="dialog">
+      <section class="overlay pause is-hidden" data-ui="pause" aria-modal="true" role="dialog" aria-labelledby="pause-title">
         <div class="panel panel--pause">
           <p class="eyebrow">牧已成舟 · 旅程暂停</p>
-          <h2>设置</h2>
+          <h2 id="pause-title">设置</h2>
           <label class="setting">
             <span>音量</span>
             <input data-ui="volume" type="range" min="0" max="1" step="0.05" value="0.7" />
@@ -229,19 +230,21 @@ export class GameUI {
             <button class="button button--danger" type="button" data-action="restart">重开第一章</button>
           </div>
           <p class="pause__meta" data-ui="pause-meta"></p>
+          <p class="start-screen__warning is-hidden" data-ui="pause-error" role="alert"></p>
         </div>
       </section>
 
-      <section class="fatal is-hidden" data-ui="fatal" role="alert">
+      <section class="fatal is-hidden" data-ui="fatal" role="alertdialog" aria-modal="true" aria-labelledby="fatal-title">
         <div>
-          <h1>无法启动 3D 场景</h1>
+          <h1 id="fatal-title">无法启动 3D 场景</h1>
           <p data-ui="fatal-copy"></p>
           <button class="button button--primary" type="button" data-action="reload">重新加载</button>
         </div>
       </section>
 
-      <div class="viewport-warning">
-        当前窗口小于 640×360，无法可靠完成实时战斗。请放大窗口或降低浏览器缩放。
+      <div class="viewport-warning" data-ui="viewport-warning" role="alertdialog" aria-modal="true" aria-labelledby="viewport-warning-title" aria-hidden="true" tabindex="-1">
+        <strong id="viewport-warning-title">窗口尺寸不足</strong>
+        <span>当前窗口小于 640×360，无法可靠完成实时战斗。请放大窗口或降低浏览器缩放。</span>
       </div>
       <div class="sr-only" aria-live="assertive" data-ui="live"></div>
     `;
@@ -349,13 +352,16 @@ export class GameUI {
       );
     });
     this.root.addEventListener('keydown', (event) => {
-      if (event.key !== 'Tab' || !this.activeModal) return;
-      const focusable = [
-        ...this.activeModal.querySelectorAll(
-          'button:not([disabled]), input:not([disabled]), select:not([disabled])'
-        )
-      ].filter((element) => element.getClientRects().length > 0);
-      if (focusable.length === 0) return;
+      const focusTrap = this.viewportQuery?.matches
+        ? this.elements['viewport-warning']
+        : this.activeModal;
+      if (event.key !== 'Tab' || !focusTrap) return;
+      const focusable = this.getFocusableElements(focusTrap);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        focusTrap.focus({ preventScroll: true });
+        return;
+      }
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (event.shiftKey && document.activeElement === first) {
@@ -375,6 +381,43 @@ export class GameUI {
     this.elements.quality.addEventListener('change', (event) => {
       this.handlers.onSetting?.('quality', event.target.value);
     });
+    this.viewportQuery = window.matchMedia(
+      '(max-width: 639px), (max-height: 359px)'
+    );
+    this.viewportQuery.addEventListener('change', () =>
+      this.updateViewportWarning()
+    );
+    this.updateViewportWarning();
+  }
+
+  updateViewportWarning() {
+    const blocked = this.viewportQuery.matches;
+    const warning = this.elements['viewport-warning'];
+    warning.setAttribute('aria-hidden', String(!blocked));
+    document.documentElement.classList.toggle('viewport-blocked', blocked);
+    if (blocked) {
+      warning.inert = false;
+      this.focusBeforeViewportWarning = document.activeElement;
+      requestAnimationFrame(() => warning.focus({ preventScroll: true }));
+      return;
+    }
+    warning.inert = false;
+    if (this.activeModal && (this.modalBackgroundState?.length ?? 0) === 0) {
+      const modal = this.activeModal;
+      this.activeModal = null;
+      this.focusModal(modal);
+      return;
+    }
+    if (this.activeModal && this.activeModal !== warning) {
+      warning.inert = true;
+    }
+    const target = this.activeModal
+      ? this.getFocusableElements(this.activeModal)[0]
+      : this.focusBeforeViewportWarning;
+    this.focusBeforeViewportWarning = null;
+    if (target instanceof HTMLElement && target.isConnected) {
+      requestAnimationFrame(() => target.focus({ preventScroll: true }));
+    }
   }
 
   showStart(save, hasSave) {
@@ -390,6 +433,20 @@ export class GameUI {
   hideStart() {
     this.elements['start-screen'].classList.add('is-hidden');
     this.releaseModal(this.elements['start-screen']);
+  }
+
+  showStartupWarnings(warnings) {
+    const message = warnings.filter(Boolean).join(' ');
+    this.elements['start-warning'].textContent = message;
+    this.elements['start-warning'].classList.toggle('is-hidden', !message);
+  }
+
+  showPersistenceError(message, surface) {
+    const element = this.elements[
+      surface === 'pause' ? 'pause-error' : 'start-warning'
+    ];
+    element.textContent = message;
+    element.classList.remove('is-hidden');
   }
 
   updateHud({
@@ -422,16 +479,25 @@ export class GameUI {
     this.elements['active-food'].textContent = save.player.activeStaminaFood
       ? `${FOODS[save.player.activeStaminaFood].name}增益 · 上限 ${formatStamina(staminaMaximum)}`
       : '当前无食品增益';
-    this.elements.objective.textContent = OBJECTIVES[save.progress];
+    const objective = OBJECTIVES[save.progress];
+    if (this.elements.objective.textContent !== objective) {
+      this.elements.objective.textContent = objective;
+    }
 
     if (objectivePosition) {
       const distance = Math.hypot(
         objectivePosition.x - playerPosition.x,
+        (objectivePosition.y ?? 0) - (playerPosition.y ?? 0),
         objectivePosition.z - playerPosition.z
       );
-      this.elements['objective-distance'].textContent = `${Math.round(distance)} m`;
+      const distanceLabel = `${Math.round(distance)} m`;
+      if (this.elements['objective-distance'].textContent !== distanceLabel) {
+        this.elements['objective-distance'].textContent = distanceLabel;
+      }
     } else {
-      this.elements['objective-distance'].textContent = '';
+      if (this.elements['objective-distance'].textContent) {
+        this.elements['objective-distance'].textContent = '';
+      }
     }
 
     this.elements.interaction.classList.toggle('is-hidden', !interaction);
@@ -498,7 +564,35 @@ export class GameUI {
 
   hidePause() {
     this.elements.pause.classList.add('is-hidden');
+    this.elements['pause-error'].classList.add('is-hidden');
+    this.elements['pause-error'].textContent = '';
     this.releaseModal(this.elements.pause);
+  }
+
+  setPersistenceResetPending(pending) {
+    if (pending) {
+      this.persistenceResetFocus = document.activeElement;
+    }
+    for (const element of this.root.querySelectorAll(
+      '[data-action="start-continue"], [data-action="start-new"], [data-action="resume"], [data-action="safe-reset"], [data-action="restart"], [data-ui="volume"], [data-ui="reduced-motion"], [data-ui="quality"]'
+    )) {
+      element.disabled = pending;
+    }
+    for (const name of ['start-screen', 'pause']) {
+      this.elements[name].setAttribute('aria-busy', String(pending));
+    }
+    if (!pending) {
+      const target = this.persistenceResetFocus;
+      this.persistenceResetFocus = null;
+      if (
+        target instanceof HTMLElement &&
+        this.activeModal?.contains(target) &&
+        target.isConnected &&
+        target.getClientRects().length > 0
+      ) {
+        requestAnimationFrame(() => target.focus({ preventScroll: true }));
+      }
+    }
   }
 
   renderShop(save) {
@@ -574,6 +668,10 @@ export class GameUI {
       .querySelector('[data-action="toggle-guide"]')
       .setAttribute('aria-expanded', String(settings.keyGuideExpanded));
     this.elements['mute-icon'].textContent = settings.muted ? '已静音' : '音效开';
+    this.elements['mute-button'].setAttribute(
+      'aria-pressed',
+      String(settings.muted)
+    );
     document.documentElement.classList.toggle(
       'reduce-motion',
       settings.reducedMotion
@@ -620,16 +718,79 @@ export class GameUI {
     );
   }
 
+  getFocusableElements(modal) {
+    return [
+      ...modal.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+      )
+    ].filter(
+      (element) =>
+        element.getClientRects().length > 0 &&
+        !element.closest('[aria-hidden="true"]')
+    );
+  }
+
   focusModal(modal) {
+    if (this.activeModal === modal) {
+      if (!this.viewportQuery?.matches) {
+        requestAnimationFrame(() => {
+          this.getFocusableElements(modal)[0]?.focus();
+        });
+      }
+      return;
+    }
+    if (
+      this.viewportQuery?.matches &&
+      modal !== this.elements['viewport-warning']
+    ) {
+      this.lastFocused = document.activeElement;
+      this.activeModal = modal;
+      this.modalBackgroundState = [];
+      return;
+    }
+    if (this.activeModal && this.activeModal !== modal) {
+      this.releaseModal(this.activeModal, { restoreFocus: false });
+    }
     this.lastFocused = document.activeElement;
     this.activeModal = modal;
+    this.modalBackgroundState = [];
+    const background = [
+      ...[...this.container.children].filter((element) => element !== this.root),
+      ...[...this.root.children].filter((element) => element !== modal)
+    ];
+    for (const element of background) {
+      this.modalBackgroundState.push({
+        element,
+        inert: element.inert,
+        ariaHidden: element.getAttribute('aria-hidden')
+      });
+      element.inert = true;
+      element.setAttribute('aria-hidden', 'true');
+    }
     requestAnimationFrame(() => {
-      modal.querySelector('button:not([disabled]), input, select')?.focus();
+      this.getFocusableElements(modal)[0]?.focus();
     });
   }
 
-  releaseModal(modal) {
-    if (this.activeModal === modal) this.activeModal = null;
+  releaseModal(modal, { restoreFocus = true } = {}) {
+    if (this.activeModal !== modal) return;
+    for (const { element, inert, ariaHidden } of this.modalBackgroundState ?? []) {
+      element.inert = inert;
+      if (ariaHidden === null) element.removeAttribute('aria-hidden');
+      else element.setAttribute('aria-hidden', ariaHidden);
+    }
+    this.modalBackgroundState = [];
+    this.activeModal = null;
+    const previous = this.lastFocused;
+    this.lastFocused = null;
+    if (
+      restoreFocus &&
+      previous instanceof HTMLElement &&
+      previous.isConnected &&
+      previous.getClientRects().length > 0
+    ) {
+      requestAnimationFrame(() => previous.focus({ preventScroll: true }));
+    }
   }
 
   announce(message) {

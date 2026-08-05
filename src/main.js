@@ -27,7 +27,7 @@ function renderStartupFailure({
   diagnostic = ''
 }) {
   container.innerHTML = `
-    <main style="display:grid;place-items:center;height:100%;padding:32px;color:#f4eedc;background:#090b14;text-align:center;font-family:system-ui,sans-serif">
+    <main role="alert" tabindex="-1" style="display:grid;place-items:center;height:100%;padding:32px;color:#f4eedc;background:#090b14;text-align:center;font-family:system-ui,sans-serif">
       <div style="max-width:680px">
         <h1 style="font-family:Georgia,serif" data-failure-title></h1>
         <p style="color:#b9b7b2;line-height:1.7" data-failure-copy></p>
@@ -48,6 +48,7 @@ function renderStartupFailure({
   `;
   container.querySelector('[data-failure-title]').textContent = title;
   container.querySelector('[data-failure-copy]').textContent = message;
+  container.querySelector('main').focus({ preventScroll: true });
   container
     .querySelector('[data-failure-reload]')
     .addEventListener('click', () => window.location.reload());
@@ -99,6 +100,7 @@ async function bootstrap() {
     window.__holyShiftBuild = Object.freeze({
       version: '0.3.0-dev',
       branch: 'dev',
+      commit: import.meta.env.VITE_HOLYSHIFT_COMMIT ?? 'unbound-local-build',
       renderer: 'three-webgl2',
       persistence: 'indexeddb-web-locks',
       world: '师老牧镇',

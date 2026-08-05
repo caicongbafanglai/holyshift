@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CHAPTER_ORDER, TASK_REWARD_CODES } from '../src/data/content';
 import {
   CONTENT_VERSION,
   SAVE_KEYS,
@@ -227,6 +228,57 @@ describe('transactional v0.3 local save', () => {
     boosted.player.stamina = 0;
     storage.setItem(SAVE_KEYS.primary, envelope(boosted));
     expect(manager.load().save.player.activeStaminaFood).toBeNull();
+  });
+
+  it.each([
+    {
+      progress: 'clearWisps' as const,
+      next: 'traceSacredGlyph' as const,
+      defeated: {
+        'wisp-a': true,
+        'wisp-b': true,
+        'wisp-c': true,
+        'approved-water-ghost': false
+      }
+    },
+    {
+      progress: 'defeatWaterGhost' as const,
+      next: 'restoreFountain' as const,
+      defeated: {
+        'wisp-a': true,
+        'wisp-b': true,
+        'wisp-c': true,
+        'approved-water-ghost': true
+      }
+    }
+  ])('repairs an interrupted completed $progress wave exactly once', ({
+    progress,
+    next,
+    defeated
+  }) => {
+    const storage = new MemoryStorage();
+    const manager = new SaveManager(storage, 'tab-a');
+    const interrupted = {
+      ...createNewSave('old-tab'),
+      progress,
+      defeated
+    };
+    storage.setItem(SAVE_KEYS.primary, envelope(interrupted));
+
+    const loaded = manager.load().save;
+    const rewardEvent = `reward:progress:${next}`;
+
+    expect(loaded.progress).toBe(next);
+    expect(loaded.consumedEvents.filter((event) => event === rewardEvent)).toHaveLength(1);
+    expect(loaded.economy.codes).toBe(
+      CHAPTER_ORDER.indexOf(next) * TASK_REWARD_CODES
+    );
+
+    const roundTripped = manager.save(loaded);
+    expect(manager.load().save.progress).toBe(next);
+    expect(
+      roundTripped.consumedEvents.filter((event) => event === rewardEvent)
+    ).toHaveLength(1);
   });
 
   it('rejects future schemas without overwriting their source record', () => {

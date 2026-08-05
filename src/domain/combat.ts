@@ -1,9 +1,10 @@
-export interface HorizontalPoint {
+export interface SpatialPoint {
   x: number;
+  y?: number;
   z: number;
 }
 
-export function horizontalDistance(left: HorizontalPoint, right: HorizontalPoint): number {
+export function horizontalDistance(left: SpatialPoint, right: SpatialPoint): number {
   return Math.hypot(left.x - right.x, left.z - right.z);
 }
 
@@ -22,16 +23,20 @@ export function isTargetInsideAttackArc({
   target,
   facingYaw,
   range,
-  arcDegrees
+  arcDegrees,
+  maxVerticalDistance = Number.POSITIVE_INFINITY
 }: {
-  origin: HorizontalPoint;
-  target: HorizontalPoint;
+  origin: SpatialPoint;
+  target: SpatialPoint;
   facingYaw: number;
   range: number;
   arcDegrees: number;
+  maxVerticalDistance?: number;
 }): boolean {
   const dx = target.x - origin.x;
   const dz = target.z - origin.z;
+  const dy = (target.y ?? 0) - (origin.y ?? 0);
+  if (Math.abs(dy) > maxVerticalDistance) return false;
   if (Math.hypot(dx, dz) > range) return false;
   const targetYaw = Math.atan2(dx, dz);
   return Math.abs(smallestAngleDelta(targetYaw, facingYaw)) <=

@@ -10,6 +10,7 @@ import {
   PLAYER_COMBAT,
   TASK_REWARD_CODES
 } from '../src/data/content';
+import { canRestoreAtFountain } from '../src/gameplay/quests/ChapterOne.js';
 
 describe('Holy Shift world bible v0.3 content', () => {
   it('defines one objective and checkpoint for every ordered chapter state', () => {
@@ -74,6 +75,19 @@ describe('Holy Shift world bible v0.3 content', () => {
     expect(PLAYER_COMBAT.glideStaminaRecoveryPerSecond).toBeGreaterThan(0);
     expect(PLAYER_COMBAT.fountainHealPerSecond).toBeGreaterThan(0);
     expect(PLAYER_COMBAT.fountainShiftRecoveryPerSecond).toBeGreaterThan(0);
+  });
+
+  it('freezes vertical tolerances for interaction, combat and fountain restoration', () => {
+    expect(PLAYER_COMBAT.lightVerticalRange).toBe(2.75);
+    expect(PLAYER_COMBAT.interactionVerticalRange).toBe(3.25);
+    expect(PLAYER_COMBAT.enemyAttackVerticalRange).toBe(2.75);
+    expect(
+      canRestoreAtFountain(
+        'restoreFountain',
+        { x: 0, y: 22, z: 0 },
+        { x: 0, y: 0, z: 0 }
+      )
+    ).toBe(false);
   });
 
   it('uses the revised old pastor catchphrase without retaining the retired ones', () => {

@@ -46,8 +46,10 @@ export class Game {
     this.hudTimer = 0;
     this.integrityTimer = 0;
     this.autosaveTimer = 0;
-    this.pendingWaveCompletion = null;
     this.defeatHandling = false;
+    this.settingSaveTimer = 0;
+    this.resetInProgress = false;
+    this.lastSaveError = null;
     this.dialogueLines = [];
     this.dialogueIndex = 0;
     this.dialogueCompletion = null;
@@ -82,9 +84,7 @@ export class Game {
     this.applySaveToWorld(false);
     this.applySettings();
     this.ui.showStart(this.save, this.hasSave);
-    loadResult.warnings.forEach((warning) =>
-      this.ui.showToast(warning, 6500)
-    );
+    this.ui.showStartupWarnings(loadResult.warnings);
     this.input.setEnabled(false);
     this.installEvents();
     this.installLocalTestBridge();
@@ -261,6 +261,25 @@ export class Game {
           }
           return (performance.now() - started) / count;
         },
+        preparePersistenceReload: () => {
+          this.started = false;
+          this.input.setEnabled(false);
+          this.saveManager.dispose?.();
+          return true;
+        },
+        failNextSaveCommit: () => {
+          const originalSave = this.saveManager.save.bind(this.saveManager);
+          this.saveManager.save = (save) => {
+            this.saveManager.save = originalSave;
+            return {
+              save,
+              committed: Promise.reject(
+                new Error('E2E forced persistence failure')
+              )
+            };
+          };
+          return true;
+        },
         snapshot: () => ({
           mode: this.mode,
           progress: this.save.progress,
@@ -307,6 +326,7 @@ export class Game {
   }
 
   handleUiAction(action, value, kind) {
+    if (this.resetInProgress && action !== 'reload') return;
     switch (action) {
       case 'start-continue':
         void this.continueGame();
@@ -374,45 +394,77 @@ export class Game {
     this.ui.hidePause();
     this.input.setEnabled(true);
     this.renderer.resetPerformanceSamples();
-    await this.audio.resume();
     this.focusCanvas();
+    void this.audio.resume();
     this.ui.showChapterUpdate(OBJECTIVES[this.save.progress], '继续第一章');
   }
 
   async startNewGame(fromPause = false) {
+    if (this.resetInProgress) return;
     if (
       this.hasSave &&
       !window.confirm('开始新旅程会删除当前浏览器中的第一章进度。确定继续吗？')
     ) {
       return;
     }
+    const previousMode = this.mode;
+    this.resetInProgress = true;
+    window.clearTimeout(this.settingSaveTimer);
+    this.settingSaveTimer = 0;
+    this.mode = 'transition';
+    this.input.setEnabled(false);
+    this.ui.setPersistenceResetPending(true);
     try {
       await this.saveManager.reset();
     } catch (error) {
-      this.ui.showToast(
-        `无法清理旧存档：${error instanceof Error ? error.message : '未知错误'}。`,
-        6000
+      const detail = error instanceof Error ? error.message : '未知错误';
+      this.resetInProgress = false;
+      this.mode = previousMode;
+      this.input.setEnabled(previousMode === 'explore');
+      this.ui.setPersistenceResetPending(false);
+      this.ui.showPersistenceError(
+        `无法清理旧存档：${detail}。`,
+        previousMode === 'pause' ? 'pause' : 'start'
       );
       return;
     }
+    const retainedSettings = { ...this.save.settings };
     this.save = createNewSave(this.saveManager.writerId);
-    if (!(await this.commitSave('创建 v0.3 新旅程'))) return;
+    this.save.settings = retainedSettings;
+    if (!(await this.commitSave('创建 v0.3 新旅程'))) {
+      this.hasSave = false;
+      this.started = false;
+      this.mode = 'start';
+      this.ui.hidePause();
+      this.ui.showStart(this.save, false);
+      this.resetInProgress = false;
+      this.ui.setPersistenceResetPending(false);
+      this.ui.showPersistenceError(
+        `无法创建新存档：${this.lastSaveError ?? '未知错误'}。请检查浏览器存储后重试。`,
+        'start'
+      );
+      return;
+    }
     this.hasSave = true;
     this.started = true;
     this.mode = 'explore';
     this.modeBeforePause = 'explore';
-    this.pendingWaveCompletion = null;
     this.defeatHandling = false;
+    this.combat.resetSessionState();
+    this.camera.resetSessionState();
     this.ui.hideDialogue();
     this.ui.hideShop();
     this.ui.hideBackpack();
     this.applySaveToWorld(true);
+    this.applySettings();
     this.ui.hideStart();
     this.ui.hidePause();
+    this.resetInProgress = false;
+    this.ui.setPersistenceResetPending(false);
     this.input.setEnabled(true);
     this.renderer.resetPerformanceSamples();
-    await this.audio.resume();
     this.focusCanvas();
+    void this.audio.resume();
     this.ui.showChapterUpdate('第一章 · 圣水有点生', '师老牧镇');
     if (fromPause) this.ui.showToast('第一章已从头开始。');
   }
@@ -643,8 +695,10 @@ export class Game {
     void this.commitSave('食品耐力增益归零失效', false);
   }
 
-  async setProgress(progress, reason) {
-    if (this.save.progress === progress) return true;
+  applyProgressState(progress) {
+    if (this.save.progress === progress) {
+      return { changed: false, rewarded: false };
+    }
     this.save.progress = progress;
     const rewardEvent = `reward:progress:${progress}`;
     const rewarded = !this.save.consumedEvents.includes(rewardEvent);
@@ -656,17 +710,26 @@ export class Game {
     if (progress === 'inspectElevator') {
       this.save.flags.fountainRestored = true;
     }
+    return { changed: true, rewarded };
+  }
+
+  showProgressSaveResult(saved, rewarded) {
+    if (!saved) return;
+    this.ui.showToast(
+      rewarded
+        ? `主线进度已自动保存。任务推进完成：获得 ${TASK_REWARD_CODES} 码，余额 ${formatCodes(this.save.economy.codes)} 码。`
+        : '主线进度已自动保存。',
+      rewarded ? 3000 : 1900
+    );
+  }
+
+  async setProgress(progress, reason) {
+    const { changed, rewarded } = this.applyProgressState(progress);
+    if (!changed) return true;
     this.applySaveToWorld(false);
     const saved = await this.commitSave(reason);
     this.ui.showChapterUpdate(OBJECTIVES[progress]);
-    if (saved) {
-      this.ui.showToast(
-        rewarded
-          ? `主线进度已自动保存。任务推进完成：获得 ${TASK_REWARD_CODES} 码，余额 ${formatCodes(this.save.economy.codes)} 码。`
-          : '主线进度已自动保存。',
-        rewarded ? 3000 : 1900
-      );
-    }
+    this.showProgressSaveResult(saved, rewarded);
     return saved;
   }
 
@@ -680,17 +743,19 @@ export class Game {
     );
     this.audio.play('victory');
     this.ui.showToast(`${enemy.definition.name} 已被移出当前流程。`, 2200);
-    void this.commitSave(`实时战斗击败 ${id}`, false);
 
-    if (
-      allWaveEnemiesDefeated(this.save.progress, this.save.defeated) &&
-      !this.pendingWaveCompletion
-    ) {
-      this.pendingWaveCompletion = {
-        timer: enemy.definition.boss ? 1.05 : 0.62,
-        progress: getNextProgressAfterWave(this.save.progress)
-      };
+    if (allWaveEnemiesDefeated(this.save.progress, this.save.defeated)) {
+      const progress = getNextProgressAfterWave(this.save.progress);
+      const { rewarded } = this.applyProgressState(progress);
+      this.applySaveToWorld(false);
+      this.ui.showChapterUpdate(OBJECTIVES[progress]);
+      void this.commitSave('完成实时异常遭遇', false).then((saved) =>
+        this.showProgressSaveResult(saved, rewarded)
+      );
+      return;
     }
+
+    void this.commitSave(`实时战斗击败 ${id}`, false);
   }
 
   handleCombatSound(action) {
@@ -725,10 +790,14 @@ export class Game {
   }
 
   async restoreFountain() {
-    if (this.save.progress !== 'restoreFountain') return;
+    if (this.save.progress !== 'restoreFountain' || this.mode !== 'explore') return;
+    this.mode = 'transition';
+    this.input.setEnabled(false);
+    this.input.releasePointer();
     this.save.flags.fountainRestored = true;
     this.world.restoreFountain();
     await this.setProgress('inspectElevator', 'Holy Shift 恢复圣水');
+    this.input.setEnabled(true);
     this.showDialogueSequence(DIALOGUES.restored);
     this.audio.play('complete');
   }
@@ -744,13 +813,18 @@ export class Game {
         this.save = scheduled;
         this.combat.bindState(this.save.player, this.save.defeated);
       }
+      this.lastSaveError = null;
       return true;
     } catch (error) {
+      this.lastSaveError = error instanceof Error ? error.message : '未知错误';
       if (announceFailure) {
-        this.ui.showToast(
-          `存档事务未完成：${error instanceof Error ? error.message : '未知错误'}。当前内存会话仍可继续。`,
-          7000
-        );
+        const message =
+          `存档事务未完成：${this.lastSaveError}。当前内存会话仍可继续。`;
+        if (this.mode === 'pause') {
+          this.ui.showPersistenceError(message, 'pause');
+        } else {
+          this.ui.showToast(message, 7000);
+        }
       }
       return false;
     }
@@ -786,10 +860,14 @@ export class Game {
   }
 
   handleSetting(name, value) {
-    if (!(name in this.save.settings)) return;
+    if (this.resetInProgress || !(name in this.save.settings)) return;
     this.save.settings[name] = value;
     this.applySettings();
-    void this.commitSave(`设置 ${name}`, false);
+    window.clearTimeout(this.settingSaveTimer);
+    this.settingSaveTimer = window.setTimeout(
+      () => void this.commitSave(`设置 ${name}`),
+      name === 'volume' ? 180 : 0
+    );
   }
 
   applySettings() {
@@ -800,6 +878,7 @@ export class Game {
   }
 
   setMuted(muted) {
+    if (this.resetInProgress) return;
     this.save.settings.muted = muted;
     this.audio.setMuted(muted);
     this.ui.applySettings(this.save.settings);
@@ -810,6 +889,7 @@ export class Game {
     if (this.input.consumePressed('m')) {
       this.setMuted(!this.save.settings.muted);
     }
+    if (this.mode === 'transition') return;
     if (this.mode === 'shop') {
       if (this.input.consumePressed('b')) {
         this.closeShop({ focus: false });
@@ -995,15 +1075,6 @@ export class Game {
       if (this.autosaveTimer >= 30) {
         this.autosaveTimer = 0;
         void this.commitSave('定时安全保存', false);
-      }
-    }
-
-    if (this.pendingWaveCompletion) {
-      this.pendingWaveCompletion.timer -= delta;
-      if (this.pendingWaveCompletion.timer <= 0) {
-        const next = this.pendingWaveCompletion.progress;
-        this.pendingWaveCompletion = null;
-        void this.setProgress(next, '完成实时异常遭遇');
       }
     }
 

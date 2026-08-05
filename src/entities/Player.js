@@ -462,6 +462,11 @@ export class Player extends THREE.Group {
     this.glideRequestedThisFrame = false;
     this.flightSecondsThisFrame = 0;
     this.glideSecondsThisFrame = 0;
+    this.attackAnimationTimer = 0;
+    this.castAnimationTimer = 0;
+    this.hurtAnimationTimer = 0;
+    this.dodgeTimer = 0;
+    this.dodgeCooldown = 0;
     this.flightFallThroughColliders?.clear();
     this.setVerticalState(VERTICAL_STATES.GROUNDED);
   }
@@ -574,8 +579,7 @@ export class Player extends THREE.Group {
 
   isFlightChordActive(input) {
     return Boolean(
-      input?.isDown?.('ctrl') &&
-      input.isDown('shift') &&
+      input?.isDown?.('x') &&
       ['w', 'a', 's', 'd'].some((key) => input.isDown(key))
     );
   }
@@ -1049,8 +1053,24 @@ export class Player extends THREE.Group {
     const checkedGround = findGroundWithinCheckDistance(this.position.x, this.position.z, walkableSurfaces, this.position.y);
 
     if (checkedGround && this.velocityY <= 0) {
-      this.landOnGround(checkedGround);
-      currentGround = checkedGround;
+      if (this.flightFallThroughColliders.size === 0) {
+        this.landOnGround(checkedGround);
+        currentGround = checkedGround;
+      } else {
+        const safeLanding = this.findSafeLanding(
+          checkedGround,
+          walkableSurfaces,
+          solidColliders
+        );
+        if (safeLanding) {
+          this.position.x = safeLanding.x;
+          this.position.z = safeLanding.z;
+          this.landOnGround(safeLanding.ground);
+          currentGround = safeLanding.ground;
+        } else {
+          this.setVerticalState(fallingState);
+        }
+      }
     } else if (this.grounded) {
       this.setVerticalState(fallingState);
     }
@@ -1094,19 +1114,32 @@ export class Player extends THREE.Group {
           previousY + GROUND_CHECK_DISTANCE
         );
         if (landingGround) {
-          const safeLanding = this.findSafeLanding(
-            landingGround,
-            walkableSurfaces,
-            solidColliders
-          );
-          if (safeLanding) {
-            this.position.x = safeLanding.x;
-            this.position.z = safeLanding.z;
-            this.landOnGround(safeLanding.ground);
-            currentGround = safeLanding.ground;
-          } else {
+          if (this.flightFallThroughColliders.size === 0) {
             this.landOnGround(landingGround);
             currentGround = landingGround;
+          } else {
+            const safeLanding = this.findSafeLanding(
+              landingGround,
+              walkableSurfaces,
+              solidColliders
+            );
+            if (safeLanding) {
+              this.position.x = safeLanding.x;
+              this.position.z = safeLanding.z;
+              this.landOnGround(safeLanding.ground);
+              currentGround = safeLanding.ground;
+            } else {
+              this.safetyResetCount += 1;
+              this.lastSafetyMessage = 'no collision-free flight landing';
+              this.reset();
+              this.didResetThisFrame = true;
+              currentGround = findWalkableGround(
+                this.position.x,
+                this.position.z,
+                walkableSurfaces,
+                this.position.y + MAX_STEP_HEIGHT
+              );
+            }
           }
         } else {
           const hitSolid = this.moveVerticallyWithCollision(nextY - previousY, solidColliders);
@@ -1131,8 +1164,24 @@ export class Player extends THREE.Group {
       this.position.y
     );
     if (finalCheckedGround && this.velocityY <= 0) {
-      this.landOnGround(finalCheckedGround);
-      currentGround = finalCheckedGround;
+      if (this.flightFallThroughColliders.size === 0) {
+        this.landOnGround(finalCheckedGround);
+        currentGround = finalCheckedGround;
+      } else {
+        const safeLanding = this.findSafeLanding(
+          finalCheckedGround,
+          walkableSurfaces,
+          solidColliders
+        );
+        if (safeLanding) {
+          this.position.x = safeLanding.x;
+          this.position.z = safeLanding.z;
+          this.landOnGround(safeLanding.ground);
+          currentGround = safeLanding.ground;
+        } else {
+          this.setVerticalState(fallingState);
+        }
+      }
     }
 
     return currentGround;
@@ -1159,10 +1208,10 @@ export class Player extends THREE.Group {
       };
     }
 
-    const radii = [0.45, 0.7, 0.95, 1.25, 1.6, 2.05];
+    const radii = [0.45, 0.7, 0.95, 1.25, 1.6, 2.05, 2.5, 3, 3.4, 3.8, 4.5];
     for (const radius of radii) {
-      for (let index = 0; index < 16; index += 1) {
-        const angle = (index / 16) * Math.PI * 2;
+      for (let index = 0; index < 24; index += 1) {
+        const angle = (index / 24) * Math.PI * 2;
         const x = this.position.x + Math.cos(angle) * radius;
         const z = this.position.z + Math.sin(angle) * radius;
         const candidateGround = findWalkableGround(

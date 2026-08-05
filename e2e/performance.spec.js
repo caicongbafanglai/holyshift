@@ -5,7 +5,7 @@ test('keeps the detailed plaza inside adaptive software-renderer budgets', async
   context,
   page
 }, testInfo) => {
-  await page.goto('/?e2e=1');
+  await page.goto('./?e2e=1');
   await page
     .getByRole('button', { name: '开始新旅程' })
     .evaluate((element) => element.click());
@@ -16,9 +16,14 @@ test('keeps the detailed plaza inside adaptive software-renderer budgets', async
     const renderer = window.__holyShiftTest.snapshot().renderer;
     const resources = performance.getEntriesByType('resource');
     window.__holyShiftTest.renderBenchmark(4);
+    const directRenderSamples = Array.from(
+      { length: 3 },
+      () => window.__holyShiftTest.renderBenchmark(18)
+    ).sort((left, right) => left - right);
     return {
       ...renderer,
-      directRenderMs: window.__holyShiftTest.renderBenchmark(18),
+      directRenderMs: directRenderSamples[1],
+      directRenderSamples,
       directUpdateMs: window.__holyShiftTest.updateBenchmark(120),
       encodedBytes: resources.reduce(
         (total, entry) => total + (entry.encodedBodySize || 0),

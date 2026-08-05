@@ -8,7 +8,7 @@ async function fastClick(locator) {
 test('Pingu stall purchases, B backpack and zero-stamina expiry form one saved loop', async ({
   page
 }) => {
-  await page.goto('/?e2e=1');
+  await page.goto('./?e2e=1');
   await fastClick(page.getByRole('button', { name: '开始新旅程' }));
   await expect.poll(
     () => page.evaluate(() => window.__holyShiftTest?.snapshot().mode)

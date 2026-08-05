@@ -3,6 +3,7 @@ import {
   LEGACY_SAVE_KEYS,
   SAVE_KEYS,
   SAVE_SCHEMA_VERSION,
+  checksumPayload,
   createNewSave,
   decodeSave,
   encodeSave,
@@ -121,7 +122,10 @@ function getRawVersion(serialized: string | null): {
       typeof envelope !== 'object' ||
       envelope === null ||
       !('payload' in envelope) ||
-      typeof envelope.payload !== 'string'
+      typeof envelope.payload !== 'string' ||
+      !('checksum' in envelope) ||
+      typeof envelope.checksum !== 'string' ||
+      checksumPayload(envelope.payload) !== envelope.checksum
     ) {
       return null;
     }
@@ -213,6 +217,7 @@ export class IndexedDbSaveManager {
   private readonly lockTask: Promise<void>;
   private writeQueue: Promise<void> = Promise.resolve();
   private nextRevision = 0;
+  private resetting = false;
   private disposed = false;
 
   private constructor(
@@ -277,14 +282,39 @@ export class IndexedDbSaveManager {
     ]);
     await completed;
 
-    const current = decodeSave(currentRaw ?? null, this.writerId);
-    const backup = decodeSave(backupRaw ?? null, this.writerId);
     let emergencyRaw: string | null = null;
     try {
       emergencyRaw = localStorage.getItem(SAVE_KEYS.temporary);
     } catch {
       emergencyRaw = null;
     }
+
+    const diagnostic = JSON.stringify(
+      {
+        database: DATABASE_NAME,
+        schemaExpected: SAVE_SCHEMA_VERSION,
+        contentExpected: CONTENT_VERSION,
+        current: currentRaw ?? null,
+        backup: backupRaw ?? null,
+        emergency: emergencyRaw
+      },
+      null,
+      2
+    );
+    if (
+      isIncompatible(currentRaw ?? null) ||
+      isIncompatible(backupRaw ?? null) ||
+      isIncompatible(emergencyRaw)
+    ) {
+      throw new PersistenceBlockedError(
+        'incompatible',
+        '检测到来自未来或不兼容内容版本的存档；原记录未被覆盖。',
+        diagnostic
+      );
+    }
+
+    const current = decodeSave(currentRaw ?? null, this.writerId);
+    const backup = decodeSave(backupRaw ?? null, this.writerId);
     const emergency = decodeSave(emergencyRaw, this.writerId);
 
     const candidates = [
@@ -328,27 +358,9 @@ export class IndexedDbSaveManager {
     }
 
     if (currentRaw || backupRaw || emergencyRaw) {
-      const incompatible =
-        isIncompatible(currentRaw ?? null) ||
-        isIncompatible(backupRaw ?? null) ||
-        isIncompatible(emergencyRaw);
-      const diagnostic = JSON.stringify(
-        {
-          database: DATABASE_NAME,
-          schemaExpected: SAVE_SCHEMA_VERSION,
-          contentExpected: CONTENT_VERSION,
-          current: currentRaw ?? null,
-          backup: backupRaw ?? null,
-          emergency: emergencyRaw
-        },
-        null,
-        2
-      );
       throw new PersistenceBlockedError(
-        incompatible ? 'incompatible' : 'corrupt',
-        incompatible
-          ? '检测到来自未来或不兼容内容版本的存档；原记录未被覆盖。'
-          : '当前存档与备份均无法通过完整性校验；原记录未被覆盖。',
+        'corrupt',
+        '当前存档与备份均无法通过完整性校验；原记录未被覆盖。',
         diagnostic
       );
     }
@@ -373,6 +385,9 @@ export class IndexedDbSaveManager {
   }
 
   save(current: GameSave): ScheduledSave {
+    if (this.resetting) {
+      throw new Error('存档重置正在进行，已拒绝并发写入。');
+    }
     const next = cloneSave(current);
     next.schemaVersion = SAVE_SCHEMA_VERSION;
     next.contentVersion = CONTENT_VERSION;
@@ -398,23 +413,34 @@ export class IndexedDbSaveManager {
   }
 
   async reset(): Promise<GameSave> {
-    await this.writeQueue;
-    const transaction = this.database.transaction(STORE_NAME, 'readwrite');
-    const completed = transactionDone(transaction);
-    transaction.objectStore(STORE_NAME).clear();
-    await completed;
-    this.nextRevision = 0;
-    try {
-      for (const key of Object.values(LEGACY_SAVE_KEYS)) {
-        localStorage.removeItem(key);
-      }
-      for (const key of Object.values(SAVE_KEYS)) {
-        localStorage.removeItem(key);
-      }
-    } catch {
-      // IndexedDB reset is authoritative; legacy cleanup is best effort.
+    if (this.resetting) {
+      throw new Error('存档重置已在进行。');
     }
-    return createNewSave(this.writerId);
+    this.resetting = true;
+    const resetOperation = this.writeQueue.then(async () => {
+      const transaction = this.database.transaction(STORE_NAME, 'readwrite');
+      const completed = transactionDone(transaction);
+      transaction.objectStore(STORE_NAME).clear();
+      await completed;
+      this.nextRevision = 0;
+      try {
+        for (const key of Object.values(LEGACY_SAVE_KEYS)) {
+          localStorage.removeItem(key);
+        }
+        for (const key of Object.values(SAVE_KEYS)) {
+          localStorage.removeItem(key);
+        }
+      } catch {
+        // IndexedDB reset is authoritative; legacy cleanup is best effort.
+      }
+    });
+    this.writeQueue = resetOperation.catch(() => {});
+    try {
+      await resetOperation;
+      return createNewSave(this.writerId);
+    } finally {
+      this.resetting = false;
+    }
   }
 
   dispose() {
